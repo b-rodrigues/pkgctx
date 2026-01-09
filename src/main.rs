@@ -4,6 +4,7 @@
 //! for use in LLMs, minimizing tokens while maximizing context.
 
 mod extractor;
+mod python_extractor;
 mod r_extractor;
 mod schema;
 
@@ -43,30 +44,30 @@ enum Commands {
 }
 
 #[derive(Parser, Clone)]
-struct ExtractOptions {
+pub struct ExtractOptions {
     /// Output format
     #[arg(long, default_value = "yaml", value_enum)]
     format: OutputFormat,
 
     /// Aggressively minimize token count
     #[arg(long)]
-    compact: bool,
+    pub compact: bool,
 
     /// Include non-exported/internal functions
     #[arg(long)]
-    include_internal: bool,
+    pub include_internal: bool,
 
     /// Include class specifications
     #[arg(long)]
-    emit_classes: bool,
+    pub emit_classes: bool,
 
     /// Include canonical workflows
     #[arg(long)]
-    emit_workflows: bool,
+    pub emit_workflows: bool,
 
     /// Extract frequently used arguments to package-level common_args
     #[arg(long)]
-    hoist_common_args: bool,
+    pub hoist_common_args: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -85,7 +86,9 @@ fn main() -> Result<()> {
             output_records(&records, options.format)?;
         }
         Commands::Python { package, options } => {
-            anyhow::bail!("Python extraction not yet implemented");
+            let extractor = python_extractor::PythonExtractor::new()?;
+            let records = extractor.extract(&package, &options)?;
+            output_records(&records, options.format)?;
         }
     }
 
