@@ -67,7 +67,7 @@ pub fn hoist_common_args(mut records: Vec<Record>) -> Vec<Record> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::SCHEMA_VERSION;
+    use crate::schema::{FunctionRecord, PackageRecord, SCHEMA_VERSION};
 
     #[test]
     fn test_hoist_common_args() {
