@@ -13,58 +13,63 @@ use std::process::Command;
 /// Extract records from a Python package source directory
 pub fn extract_from_source(pkg: &FetchedPackage, options: &ExtractOptions) -> Result<Vec<Record>> {
     // Use Python AST to parse the source
-    let py_script = generate_source_parser(&pkg.source_path.to_string_lossy(), options.include_internal);
-    
+    let py_script =
+        generate_source_parser(&pkg.source_path.to_string_lossy(), options.include_internal);
+
     let output = Command::new("python3")
         .args(["-c", &py_script])
         .output()
         .context("Failed to execute python3 for source parsing")?;
-    
+
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("Python source parsing failed: {}", stderr);
     }
-    
+
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     let json_start = stdout
         .find("<<<PKGCTX_JSON_START>>>")
         .context("Could not find JSON start marker")?;
     let json_end = stdout
         .find("<<<PKGCTX_JSON_END>>>")
         .context("Could not find JSON end marker")?;
-    
+
     let json_str = &stdout[json_start + 23..json_end];
-    
+
     let parsed: PySourceInfo = serde_json::from_str(json_str)
         .with_context(|| format!("Failed to parse Python AST output"))?;
-    
+
     let mut records = Vec::new();
-    
+
     // Package record
     let pkg_record = PackageRecord {
         schema_version: SCHEMA_VERSION.to_string(),
         name: pkg.name.clone(),
-        version: pkg.version.clone().unwrap_or_else(|| parsed.version.unwrap_or("unknown".to_string())),
+        version: pkg
+            .version
+            .clone()
+            .unwrap_or_else(|| parsed.version.unwrap_or("unknown".to_string())),
         language: "Python".to_string(),
         description: parsed.description,
         llm_hints: Vec::new(),
         common_arguments: BTreeMap::new(),
     };
     records.push(Record::Package(pkg_record));
-    
+
     // Function records
     for func in parsed.functions {
         let mut arguments = BTreeMap::new();
         for param in func.parameters {
-            let desc = param.annotation
+            let desc = param
+                .annotation
                 .or_else(|| param.default.map(|d| format!("default: {}", d)))
                 .unwrap_or_default();
             if !desc.is_empty() {
                 arguments.insert(param.name, desc);
             }
         }
-        
+
         let func_record = FunctionRecord {
             name: func.name,
             exported: true,
@@ -81,7 +86,7 @@ pub fn extract_from_source(pkg: &FetchedPackage, options: &ExtractOptions) -> Re
         };
         records.push(Record::Function(func_record));
     }
-    
+
     // Class records
     if options.emit_classes {
         for cls in parsed.classes {
@@ -90,7 +95,7 @@ pub fn extract_from_source(pkg: &FetchedPackage, options: &ExtractOptions) -> Re
                 let desc = method.docstring.unwrap_or_else(|| method.signature);
                 methods.insert(method.name, desc);
             }
-            
+
             let class_record = ClassRecord {
                 name: cls.name,
                 constructed_by: Vec::new(),
@@ -99,7 +104,7 @@ pub fn extract_from_source(pkg: &FetchedPackage, options: &ExtractOptions) -> Re
             records.push(Record::Class(class_record));
         }
     }
-    
+
     Ok(records)
 }
 
@@ -141,7 +146,8 @@ struct PyClassInfo {
 }
 
 fn generate_source_parser(source_path: &str, include_internal: bool) -> String {
-    format!(r#"
+    format!(
+        r#"
 import ast
 import os
 import json

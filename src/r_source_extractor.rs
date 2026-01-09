@@ -13,10 +13,10 @@ use std::path::Path;
 /// Extract records from an R package source directory
 pub fn extract_from_source(pkg: &FetchedPackage, options: &ExtractOptions) -> Result<Vec<Record>> {
     let mut records = Vec::new();
-    
+
     // Parse DESCRIPTION for package metadata
     let (title, description) = parse_description(&pkg.source_path)?;
-    
+
     let pkg_record = PackageRecord {
         schema_version: SCHEMA_VERSION.to_string(),
         name: pkg.name.clone(),
@@ -27,34 +27,38 @@ pub fn extract_from_source(pkg: &FetchedPackage, options: &ExtractOptions) -> Re
         common_arguments: BTreeMap::new(),
     };
     records.push(Record::Package(pkg_record));
-    
+
     // Parse NAMESPACE for exported functions
     let exports = parse_namespace(&pkg.source_path)?;
-    
+
     // Parse Rd files for documentation
     let rd_docs = parse_rd_files(&pkg.source_path)?;
-    
+
     // Parse R files for function signatures
-    let functions = parse_r_files(&pkg.source_path, &exports, &rd_docs, options.include_internal)?;
-    
+    let functions = parse_r_files(
+        &pkg.source_path,
+        &exports,
+        &rd_docs,
+        options.include_internal,
+    )?;
+
     for func in functions {
         records.push(Record::Function(func));
     }
-    
+
     Ok(records)
 }
 
 /// Parse DESCRIPTION file for title and description
 fn parse_description(path: &Path) -> Result<(Option<String>, Option<String>)> {
     let desc_path = path.join("DESCRIPTION");
-    let content = fs::read_to_string(&desc_path)
-        .context("Failed to read DESCRIPTION file")?;
-    
+    let content = fs::read_to_string(&desc_path).context("Failed to read DESCRIPTION file")?;
+
     let mut title = None;
     let mut description = None;
     let mut in_description = false;
     let mut desc_lines = Vec::new();
-    
+
     for line in content.lines() {
         if let Some(t) = line.strip_prefix("Title:") {
             title = Some(sanitize(t.trim()));
@@ -70,22 +74,21 @@ fn parse_description(path: &Path) -> Result<(Option<String>, Option<String>)> {
             }
         }
     }
-    
+
     if !desc_lines.is_empty() {
         description = Some(sanitize(&desc_lines.join(" ")));
     }
-    
+
     Ok((title, description))
 }
 
 /// Parse NAMESPACE file for exported functions
 fn parse_namespace(path: &Path) -> Result<Vec<String>> {
     let ns_path = path.join("NAMESPACE");
-    let content = fs::read_to_string(&ns_path)
-        .unwrap_or_default();  // NAMESPACE might not exist
-    
+    let content = fs::read_to_string(&ns_path).unwrap_or_default(); // NAMESPACE might not exist
+
     let mut exports = Vec::new();
-    
+
     for line in content.lines() {
         let line = line.trim();
         // export(func1, func2, ...)
@@ -99,7 +102,7 @@ fn parse_namespace(path: &Path) -> Result<Vec<String>> {
         // exportPattern("^[^.]") - export all non-dot functions
         // S3method(generic, class) - export S3 method
     }
-    
+
     Ok(exports)
 }
 
@@ -115,30 +118,31 @@ struct RdDoc {
 /// Parse all Rd files in man/ directory
 fn parse_rd_files(path: &Path) -> Result<BTreeMap<String, RdDoc>> {
     let mut docs = BTreeMap::new();
-    
+
     let man_path = path.join("man");
     if !man_path.exists() {
         return Ok(docs);
     }
-    
+
     for entry in fs::read_dir(&man_path)? {
         let entry = entry?;
         let file_path = entry.path();
-        
+
         if file_path.extension().map_or(false, |e| e == "Rd") {
             if let Ok(content) = fs::read_to_string(&file_path) {
-                let name = file_path.file_stem()
+                let name = file_path
+                    .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("")
                     .to_string();
-                
+
                 if let Ok(doc) = parse_rd_content(&content) {
                     docs.insert(name, doc);
                 }
             }
         }
     }
-    
+
     Ok(docs)
 }
 
@@ -151,15 +155,15 @@ fn parse_rd_content(content: &str) -> Result<RdDoc> {
         value: None,
         examples: Vec::new(),
     };
-    
+
     // Simple Rd parser - extract sections
     let mut current_section = String::new();
     let mut section_content = String::new();
     let mut brace_depth = 0;
-    
+
     for line in content.lines() {
         let line = line.trim();
-        
+
         // Check for section start
         if line.starts_with("\\title{") {
             current_section = "title".to_string();
@@ -187,7 +191,7 @@ fn parse_rd_content(content: &str) -> Result<RdDoc> {
         } else if brace_depth > 0 {
             brace_depth += line.chars().filter(|c| *c == '{').count() as i32;
             brace_depth -= line.chars().filter(|c| *c == '}').count() as i32;
-            
+
             if current_section == "examples" && !line.starts_with('%') {
                 let ex_line = line.trim_start_matches("\\dontrun{").trim_end_matches('}');
                 if !ex_line.is_empty() {
@@ -197,7 +201,7 @@ fn parse_rd_content(content: &str) -> Result<RdDoc> {
                 section_content.push(' ');
                 section_content.push_str(line);
             }
-            
+
             if brace_depth == 0 {
                 match current_section.as_str() {
                     "title" => doc.title = Some(sanitize(&section_content)),
@@ -210,7 +214,7 @@ fn parse_rd_content(content: &str) -> Result<RdDoc> {
             }
         }
     }
-    
+
     Ok(doc)
 }
 
@@ -222,8 +226,8 @@ fn extract_brace_content(line: &str, prefix: &str) -> String {
 }
 
 fn count_braces(line: &str) -> i32 {
-    line.chars().filter(|c| *c == '{').count() as i32 -
-    line.chars().filter(|c| *c == '}').count() as i32
+    line.chars().filter(|c| *c == '{').count() as i32
+        - line.chars().filter(|c| *c == '}').count() as i32
 }
 
 fn parse_item(line: &str) -> Option<(String, String)> {
@@ -232,7 +236,10 @@ fn parse_item(line: &str) -> Option<(String, String)> {
     let close_pos = rest.find('}')?;
     let name = rest[..close_pos].to_string();
     let rest = &rest[close_pos + 1..];
-    let desc = rest.trim_start_matches('{').trim_end_matches('}').to_string();
+    let desc = rest
+        .trim_start_matches('{')
+        .trim_end_matches('}')
+        .to_string();
     Some((name, desc))
 }
 
@@ -244,24 +251,28 @@ fn parse_r_files(
     include_internal: bool,
 ) -> Result<Vec<FunctionRecord>> {
     let mut functions = Vec::new();
-    
+
     let r_path = path.join("R");
     if !r_path.exists() {
         return Ok(functions);
     }
-    
+
     for entry in fs::read_dir(&r_path)? {
         let entry = entry?;
         let file_path = entry.path();
-        
-        if file_path.extension().map_or(false, |e| e == "R" || e == "r") {
+
+        if file_path
+            .extension()
+            .map_or(false, |e| e == "R" || e == "r")
+        {
             if let Ok(content) = fs::read_to_string(&file_path) {
-                let file_funcs = extract_functions_from_r(&content, exports, rd_docs, include_internal);
+                let file_funcs =
+                    extract_functions_from_r(&content, exports, rd_docs, include_internal);
                 functions.extend(file_funcs);
             }
         }
     }
-    
+
     Ok(functions)
 }
 
@@ -273,30 +284,30 @@ fn extract_functions_from_r(
     include_internal: bool,
 ) -> Vec<FunctionRecord> {
     let mut functions = Vec::new();
-    
+
     // Simple regex-like parsing for: name <- function(args) or name = function(args)
     let lines: Vec<&str> = content.lines().collect();
-    
+
     for (i, line) in lines.iter().enumerate() {
         let line = line.trim();
-        
+
         // Skip comments
         if line.starts_with('#') {
             continue;
         }
-        
+
         // Look for function assignment patterns
         let patterns = ["<- function(", "= function(", "<-function(", "=function("];
-        
+
         for pattern in patterns {
             if let Some(pos) = line.find(pattern) {
                 let name = line[..pos].trim().to_string();
                 if name.is_empty() || name.contains(' ') {
                     continue;
                 }
-                
+
                 let exported = exports.contains(&name) || exports.is_empty();
-                
+
                 // Skip internal functions unless requested
                 if !include_internal && name.starts_with('.') {
                     continue;
@@ -304,16 +315,20 @@ fn extract_functions_from_r(
                 if !include_internal && !exported {
                     continue;
                 }
-                
+
                 // Extract signature (may span multiple lines)
                 let mut sig_content = line[pos + pattern.len()..].to_string();
                 let mut paren_depth = 1;
                 let mut j = i;
-                
+
                 while paren_depth > 0 && j < lines.len() {
                     for c in sig_content.chars() {
-                        if c == '(' { paren_depth += 1; }
-                        if c == ')' { paren_depth -= 1; }
+                        if c == '(' {
+                            paren_depth += 1;
+                        }
+                        if c == ')' {
+                            paren_depth -= 1;
+                        }
                     }
                     if paren_depth > 0 {
                         j += 1;
@@ -322,27 +337,33 @@ fn extract_functions_from_r(
                         }
                     }
                 }
-                
+
                 // Build signature
                 let args_end = sig_content.rfind(')').unwrap_or(sig_content.len());
                 let args = &sig_content[..args_end];
                 let signature = format!("{}({})", name, args.trim());
-                
+
                 // Get documentation
                 let doc = rd_docs.get(&name);
-                
+
                 let mut arguments = BTreeMap::new();
                 if let Some(d) = doc {
                     arguments = d.arguments.clone();
                 }
-                
+
                 let examples: Vec<Example> = doc
-                    .map(|d| d.examples.iter().take(3).map(|e| Example {
-                        code: e.clone(),
-                        shows: Vec::new(),
-                    }).collect())
+                    .map(|d| {
+                        d.examples
+                            .iter()
+                            .take(3)
+                            .map(|e| Example {
+                                code: e.clone(),
+                                shows: Vec::new(),
+                            })
+                            .collect()
+                    })
                     .unwrap_or_default();
-                
+
                 let func = FunctionRecord {
                     name: name.clone(),
                     exported,
@@ -357,19 +378,20 @@ fn extract_functions_from_r(
                     examples,
                     related: Vec::new(),
                 };
-                
+
                 functions.push(func);
                 break;
             }
         }
     }
-    
+
     functions
 }
 
 fn sanitize(s: &str) -> String {
     // Remove Rd markup and normalize whitespace
-    let s = s.replace("\\code{", "")
+    let s = s
+        .replace("\\code{", "")
         .replace("\\link{", "")
         .replace("\\pkg{", "")
         .replace("\\emph{", "")
@@ -377,7 +399,7 @@ fn sanitize(s: &str) -> String {
         .replace("}", "")
         .replace("\\n", " ")
         .replace('\n', " ");
-    
+
     let s: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
     s.trim().to_string()
 }

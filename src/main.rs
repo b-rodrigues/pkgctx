@@ -83,7 +83,7 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::R { package, options } => {
             eprintln!("Fetching R package: {}", package);
-            
+
             let source = fetch::PackageSource::parse(&package, "r")?;
             let pkg = match source {
                 fetch::PackageSource::Cran(name) => {
@@ -96,17 +96,20 @@ fn main() -> Result<()> {
                 }
                 _ => anyhow::bail!("Invalid source for R package"),
             };
-            
-            eprintln!("  → Version: {}", pkg.version.as_deref().unwrap_or("unknown"));
+
+            eprintln!(
+                "  → Version: {}",
+                pkg.version.as_deref().unwrap_or("unknown")
+            );
             eprintln!("  → Parsing source...");
-            
+
             let records = r_source_extractor::extract_from_source(&pkg, &options)?;
             let records = apply_transformations(records, &options);
             output_records(&records, options.format)?;
         }
         Commands::Python { package, options } => {
             eprintln!("Fetching Python package: {}", package);
-            
+
             let source = fetch::PackageSource::parse(&package, "python")?;
             let pkg = match source {
                 fetch::PackageSource::PyPI(name) => {
@@ -119,10 +122,13 @@ fn main() -> Result<()> {
                 }
                 _ => anyhow::bail!("Invalid source for Python package"),
             };
-            
-            eprintln!("  → Version: {}", pkg.version.as_deref().unwrap_or("unknown"));
+
+            eprintln!(
+                "  → Version: {}",
+                pkg.version.as_deref().unwrap_or("unknown")
+            );
             eprintln!("  → Parsing source...");
-            
+
             let records = python_source_extractor::extract_from_source(&pkg, &options)?;
             let records = apply_transformations(records, &options);
             output_records(&records, options.format)?;
@@ -133,19 +139,22 @@ fn main() -> Result<()> {
 }
 
 /// Apply post-extraction transformations based on options.
-fn apply_transformations(records: Vec<schema::Record>, options: &ExtractOptions) -> Vec<schema::Record> {
+fn apply_transformations(
+    records: Vec<schema::Record>,
+    options: &ExtractOptions,
+) -> Vec<schema::Record> {
     let records = if options.hoist_common_args {
         hoist::hoist_common_args(records)
     } else {
         records
     };
-    
+
     let records = if options.compact {
         compact::compact_records(records)
     } else {
         records
     };
-    
+
     records
 }
 

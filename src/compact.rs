@@ -28,35 +28,37 @@ fn compact_package(mut pkg: PackageRecord) -> PackageRecord {
 fn compact_function(mut func: FunctionRecord) -> FunctionRecord {
     // Truncate purpose to first sentence
     func.purpose = func.purpose.map(truncate_to_sentence);
-    
+
     // Truncate argument descriptions
-    func.arguments = func.arguments
+    func.arguments = func
+        .arguments
         .into_iter()
         .map(|(k, v)| (k, truncate_to_sentence(v)))
         .collect();
-    
+
     // Truncate returns description
     func.returns = func.returns.map(truncate_to_sentence);
-    
+
     // Remove examples in compact mode (signature is usually enough)
     func.examples.clear();
-    
+
     // Remove constraints in compact mode
     func.constraints.clear();
-    
+
     // Remove related functions (can be inferred from names)
     func.related.clear();
-    
+
     func
 }
 
 fn compact_class(mut cls: ClassRecord) -> ClassRecord {
     // Truncate method descriptions
-    cls.methods = cls.methods
+    cls.methods = cls
+        .methods
         .into_iter()
         .map(|(k, v)| (k, truncate_to_sentence(v)))
         .collect();
-    
+
     cls
 }
 
@@ -65,7 +67,7 @@ fn compact_class(mut cls: ClassRecord) -> ClassRecord {
 fn truncate_to_sentence(s: String) -> String {
     // Find first sentence terminator
     let terminators = ['.', '!', '?'];
-    
+
     for (i, c) in s.char_indices() {
         if terminators.contains(&c) {
             // Check if this looks like end of sentence (followed by space or end)
@@ -80,7 +82,7 @@ fn truncate_to_sentence(s: String) -> String {
             }
         }
     }
-    
+
     // No sentence boundary found, truncate at word boundary around 100 chars
     if s.len() > 100 {
         // Find last space before 100 chars
@@ -89,7 +91,7 @@ fn truncate_to_sentence(s: String) -> String {
         }
         return format!("{}...", &s[..100]);
     }
-    
+
     s
 }
 
@@ -103,12 +105,9 @@ mod tests {
             truncate_to_sentence("First sentence. Second sentence.".to_string()),
             "First sentence."
         );
-        
-        assert_eq!(
-            truncate_to_sentence("Short text".to_string()),
-            "Short text"
-        );
-        
+
+        assert_eq!(truncate_to_sentence("Short text".to_string()), "Short text");
+
         let long = "This is a very long description that goes on and on without any sentence boundaries and just keeps going forever";
         let result = truncate_to_sentence(long.to_string());
         assert!(result.len() < long.len());

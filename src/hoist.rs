@@ -15,32 +15,32 @@ pub fn hoist_common_args(mut records: Vec<Record>) -> Vec<Record> {
     // Find all arguments and their descriptions across functions
     let mut arg_counts: HashMap<String, usize> = HashMap::new();
     let mut arg_descriptions: HashMap<String, String> = HashMap::new();
-    
+
     for record in &records {
         if let Record::Function(func) = record {
             for (arg_name, arg_desc) in &func.arguments {
                 *arg_counts.entry(arg_name.clone()).or_insert(0) += 1;
                 // Keep the first non-empty description
                 if !arg_desc.is_empty() {
-                    arg_descriptions.entry(arg_name.clone()).or_insert_with(|| arg_desc.clone());
+                    arg_descriptions
+                        .entry(arg_name.clone())
+                        .or_insert_with(|| arg_desc.clone());
                 }
             }
         }
     }
-    
+
     // Find common arguments (appear >= MIN_OCCURRENCES times)
     let common_args: BTreeMap<String, String> = arg_counts
         .into_iter()
         .filter(|(_, count)| *count >= MIN_OCCURRENCES)
-        .filter_map(|(name, _)| {
-            arg_descriptions.get(&name).map(|desc| (name, desc.clone()))
-        })
+        .filter_map(|(name, _)| arg_descriptions.get(&name).map(|desc| (name, desc.clone())))
         .collect();
-    
+
     if common_args.is_empty() {
         return records;
     }
-    
+
     // Update package record with common arguments
     for record in &mut records {
         if let Record::Package(pkg) = record {
@@ -48,19 +48,20 @@ pub fn hoist_common_args(mut records: Vec<Record>) -> Vec<Record> {
             break;
         }
     }
-    
+
     // Remove common arguments from individual function records
     for record in &mut records {
         if let Record::Function(func) = record {
             for arg_name in common_args.keys() {
                 // Replace detailed description with reference to common_args
                 if func.arguments.contains_key(arg_name) {
-                    func.arguments.insert(arg_name.clone(), "(see common_arguments)".to_string());
+                    func.arguments
+                        .insert(arg_name.clone(), "(see common_arguments)".to_string());
                 }
             }
         }
     }
-    
+
     records
 }
 
@@ -90,7 +91,9 @@ mod tests {
                 arguments: [
                     ("data".to_string(), "A data frame".to_string()),
                     ("x".to_string(), "Column name".to_string()),
-                ].into_iter().collect(),
+                ]
+                .into_iter()
+                .collect(),
                 arg_types: BTreeMap::new(),
                 returns: None,
                 return_type: None,
@@ -107,7 +110,9 @@ mod tests {
                 arguments: [
                     ("data".to_string(), "A data frame".to_string()),
                     ("y".to_string(), "Another column".to_string()),
-                ].into_iter().collect(),
+                ]
+                .into_iter()
+                .collect(),
                 arg_types: BTreeMap::new(),
                 returns: None,
                 return_type: None,
@@ -124,7 +129,9 @@ mod tests {
                 arguments: [
                     ("data".to_string(), "A data frame".to_string()),
                     ("z".to_string(), "Yet another column".to_string()),
-                ].into_iter().collect(),
+                ]
+                .into_iter()
+                .collect(),
                 arg_types: BTreeMap::new(),
                 returns: None,
                 return_type: None,
@@ -133,20 +140,26 @@ mod tests {
                 related: vec![],
             }),
         ];
-        
+
         let result = hoist_common_args(records);
-        
+
         // Check package has common_arguments
         if let Record::Package(pkg) = &result[0] {
             assert!(pkg.common_arguments.contains_key("data"));
-            assert_eq!(pkg.common_arguments.get("data"), Some(&"A data frame".to_string()));
+            assert_eq!(
+                pkg.common_arguments.get("data"),
+                Some(&"A data frame".to_string())
+            );
         } else {
             panic!("Expected Package record");
         }
-        
+
         // Check functions reference common_arguments
         if let Record::Function(func) = &result[1] {
-            assert_eq!(func.arguments.get("data"), Some(&"(see common_arguments)".to_string()));
+            assert_eq!(
+                func.arguments.get("data"),
+                Some(&"(see common_arguments)".to_string())
+            );
         }
     }
 }
