@@ -5,6 +5,7 @@
 
 mod compact;
 mod extractor;
+mod hoist;
 mod python_extractor;
 mod r_extractor;
 mod schema;
@@ -84,26 +85,35 @@ fn main() -> Result<()> {
         Commands::R { package, options } => {
             let extractor = r_extractor::RExtractor::new()?;
             let records = extractor.extract(&package, &options)?;
-            let records = if options.compact {
-                compact::compact_records(records)
-            } else {
-                records
-            };
+            let records = apply_transformations(records, &options);
             output_records(&records, options.format)?;
         }
         Commands::Python { package, options } => {
             let extractor = python_extractor::PythonExtractor::new()?;
             let records = extractor.extract(&package, &options)?;
-            let records = if options.compact {
-                compact::compact_records(records)
-            } else {
-                records
-            };
+            let records = apply_transformations(records, &options);
             output_records(&records, options.format)?;
         }
     }
 
     Ok(())
+}
+
+/// Apply post-extraction transformations based on options.
+fn apply_transformations(records: Vec<schema::Record>, options: &ExtractOptions) -> Vec<schema::Record> {
+    let records = if options.hoist_common_args {
+        hoist::hoist_common_args(records)
+    } else {
+        records
+    };
+    
+    let records = if options.compact {
+        compact::compact_records(records)
+    } else {
+        records
+    };
+    
+    records
 }
 
 fn output_records(records: &[schema::Record], format: OutputFormat) -> Result<()> {
