@@ -261,10 +261,7 @@ fn parse_r_files(
         let entry = entry?;
         let file_path = entry.path();
 
-        if file_path
-            .extension()
-            .is_some_and(|e| e == "R" || e == "r")
-        {
+        if file_path.extension().is_some_and(|e| e == "R" || e == "r") {
             if let Ok(content) = fs::read_to_string(&file_path) {
                 let file_funcs =
                     extract_functions_from_r(&content, exports, rd_docs, include_internal);
