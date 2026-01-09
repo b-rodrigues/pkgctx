@@ -3,6 +3,7 @@
 //! Extracts structured, compact API specifications from R or Python packages
 //! for use in LLMs, minimizing tokens while maximizing context.
 
+mod compact;
 mod extractor;
 mod python_extractor;
 mod r_extractor;
@@ -83,11 +84,21 @@ fn main() -> Result<()> {
         Commands::R { package, options } => {
             let extractor = r_extractor::RExtractor::new()?;
             let records = extractor.extract(&package, &options)?;
+            let records = if options.compact {
+                compact::compact_records(records)
+            } else {
+                records
+            };
             output_records(&records, options.format)?;
         }
         Commands::Python { package, options } => {
             let extractor = python_extractor::PythonExtractor::new()?;
             let records = extractor.extract(&package, &options)?;
+            let records = if options.compact {
+                compact::compact_records(records)
+            } else {
+                records
+            };
             output_records(&records, options.format)?;
         }
     }
