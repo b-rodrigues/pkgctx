@@ -38,9 +38,9 @@ jobs:
 
       - name: Test Python extraction
         run: |
-          nix develop --command cargo run --quiet -- python json > json.ctx.yaml
-          echo "Generated $(wc -l < json.ctx.yaml) lines"
-          head -20 json.ctx.yaml
+          nix develop --command cargo run --quiet -- python requests > requests.ctx.yaml
+          echo "Generated $(wc -l < requests.ctx.yaml) lines"
+          head -20 requests.ctx.yaml
 
       - name: Test compact mode
         run: |
