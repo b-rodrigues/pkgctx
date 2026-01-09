@@ -25,6 +25,9 @@ thiserror = "1"
 # Process spawning for R/Python
 which = "6"
 
+# Temporary directories for downloaded sources
+tempfile = "3"
+
 [profile.release]
 lto = true
 strip = true

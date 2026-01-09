@@ -57,8 +57,8 @@
             # R for package introspection
             rWithPackages
 
-            # Python for future Python support
-            pkgs.python312
+            # Python with pip for PyPI downloads
+            (pkgs.python312.withPackages (ps: [ ps.pip ]))
 
             # Development tools
             pkgs.cargo-watch

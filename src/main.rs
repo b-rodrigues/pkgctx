@@ -4,13 +4,12 @@
 //! for use in LLMs, minimizing tokens while maximizing context.
 
 mod compact;
-mod extractor;
+mod fetch;
 mod hoist;
-mod python_extractor;
-mod r_extractor;
+mod python_source_extractor;
+mod r_source_extractor;
 mod schema;
 
-use crate::extractor::Extractor;
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use std::io::{self, Write};
@@ -26,18 +25,18 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Extract context from an R package
+    /// Extract context from an R package (CRAN or GitHub)
     R {
-        /// Name of the R package to extract
+        /// Package specifier: name (CRAN) or github:owner/repo[@ref]
         package: String,
 
         #[command(flatten)]
         options: ExtractOptions,
     },
 
-    /// Extract context from a Python package
+    /// Extract context from a Python package (PyPI or GitHub)
     Python {
-        /// Name of the Python package to extract
+        /// Package specifier: name (PyPI) or github:owner/repo[@ref]
         package: String,
 
         #[command(flatten)]
@@ -83,14 +82,48 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::R { package, options } => {
-            let extractor = r_extractor::RExtractor::new()?;
-            let records = extractor.extract(&package, &options)?;
+            eprintln!("Fetching R package: {}", package);
+            
+            let source = fetch::PackageSource::parse(&package, "r")?;
+            let pkg = match source {
+                fetch::PackageSource::Cran(name) => {
+                    eprintln!("  → Downloading from CRAN...");
+                    fetch::fetch_cran_package(&name)?
+                }
+                fetch::PackageSource::GitHub { owner, repo, ref_ } => {
+                    eprintln!("  → Downloading from GitHub: {}/{}...", owner, repo);
+                    fetch::fetch_github_r_package(&owner, &repo, ref_.as_deref())?
+                }
+                _ => anyhow::bail!("Invalid source for R package"),
+            };
+            
+            eprintln!("  → Version: {}", pkg.version.as_deref().unwrap_or("unknown"));
+            eprintln!("  → Parsing source...");
+            
+            let records = r_source_extractor::extract_from_source(&pkg, &options)?;
             let records = apply_transformations(records, &options);
             output_records(&records, options.format)?;
         }
         Commands::Python { package, options } => {
-            let extractor = python_extractor::PythonExtractor::new()?;
-            let records = extractor.extract(&package, &options)?;
+            eprintln!("Fetching Python package: {}", package);
+            
+            let source = fetch::PackageSource::parse(&package, "python")?;
+            let pkg = match source {
+                fetch::PackageSource::PyPI(name) => {
+                    eprintln!("  → Downloading from PyPI...");
+                    fetch::fetch_pypi_package(&name)?
+                }
+                fetch::PackageSource::GitHub { owner, repo, ref_ } => {
+                    eprintln!("  → Downloading from GitHub: {}/{}...", owner, repo);
+                    fetch::fetch_github_python_package(&owner, &repo, ref_.as_deref())?
+                }
+                _ => anyhow::bail!("Invalid source for Python package"),
+            };
+            
+            eprintln!("  → Version: {}", pkg.version.as_deref().unwrap_or("unknown"));
+            eprintln!("  → Parsing source...");
+            
+            let records = python_source_extractor::extract_from_source(&pkg, &options)?;
             let records = apply_transformations(records, &options);
             output_records(&records, options.format)?;
         }
