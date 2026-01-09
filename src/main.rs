@@ -149,13 +149,11 @@ fn apply_transformations(
         records
     };
 
-    let records = if options.compact {
+    if options.compact {
         compact::compact_records(records)
     } else {
         records
-    };
-
-    records
+    }
 }
 
 fn output_records(records: &[schema::Record], format: OutputFormat) -> Result<()> {

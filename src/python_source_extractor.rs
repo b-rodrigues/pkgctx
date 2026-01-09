@@ -38,7 +38,7 @@ pub fn extract_from_source(pkg: &FetchedPackage, options: &ExtractOptions) -> Re
     let json_str = &stdout[json_start + 23..json_end];
 
     let parsed: PySourceInfo = serde_json::from_str(json_str)
-        .with_context(|| format!("Failed to parse Python AST output"))?;
+        .with_context(|| "Failed to parse Python AST output".to_string())?;
 
     let mut records = Vec::new();
 
@@ -92,7 +92,7 @@ pub fn extract_from_source(pkg: &FetchedPackage, options: &ExtractOptions) -> Re
         for cls in parsed.classes {
             let mut methods = BTreeMap::new();
             for method in cls.methods {
-                let desc = method.docstring.unwrap_or_else(|| method.signature);
+                let desc = method.docstring.unwrap_or(method.signature);
                 methods.insert(method.name, desc);
             }
 

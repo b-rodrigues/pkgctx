@@ -128,7 +128,7 @@ fn parse_rd_files(path: &Path) -> Result<BTreeMap<String, RdDoc>> {
         let entry = entry?;
         let file_path = entry.path();
 
-        if file_path.extension().map_or(false, |e| e == "Rd") {
+        if file_path.extension().is_some_and(|e| e == "Rd") {
             if let Ok(content) = fs::read_to_string(&file_path) {
                 let name = file_path
                     .file_stem()
@@ -263,7 +263,7 @@ fn parse_r_files(
 
         if file_path
             .extension()
-            .map_or(false, |e| e == "R" || e == "r")
+            .is_some_and(|e| e == "R" || e == "r")
         {
             if let Ok(content) = fs::read_to_string(&file_path) {
                 let file_funcs =

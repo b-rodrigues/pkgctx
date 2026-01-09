@@ -29,8 +29,7 @@ impl PackageSource {
     /// - `dplyr` (CRAN for R, PyPI for Python)
     /// - `github:owner/repo` or `github:owner/repo@ref`
     pub fn parse(spec: &str, language: &str) -> Result<Self> {
-        if spec.starts_with("github:") {
-            let rest = &spec[7..];
+        if let Some(rest) = spec.strip_prefix("github:") {
             let (repo_part, ref_) = if let Some(at_pos) = rest.find('@') {
                 (&rest[..at_pos], Some(rest[at_pos + 1..].to_string()))
             } else {
@@ -299,7 +298,7 @@ pub fn fetch_github_python_package(
 }
 
 /// Parse version from R DESCRIPTION file
-fn parse_description_version(path: &PathBuf) -> Option<String> {
+fn parse_description_version(path: &std::path::Path) -> Option<String> {
     let desc_path = path.join("DESCRIPTION");
     if let Ok(content) = std::fs::read_to_string(&desc_path) {
         for line in content.lines() {
