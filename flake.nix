@@ -23,28 +23,9 @@
           extensions = [ "rust-src" "clippy" "rustfmt" ];
         };
 
-        # Build rix from GitHub for testing
-        rix = pkgs.rPackages.buildRPackage {
-          name = "rix";
-          src = pkgs.fetchFromGitHub {
-            owner = "ropensci";
-            repo = "rix";
-            rev = "main";
-            sha256 = "sha256-HrZMwJfbUOdmwXWN8CmzDOLgJwqRc3e3s5qS96oSUC0=";
-          };
-          propagatedBuildInputs = with pkgs.rPackages; [
-            codetools curl jsonlite sys
-          ];
-        };
-
-        # R with packages needed for introspection and rix testing
+        # R minimal environment
         rWithPackages = pkgs.rWrapper.override {
-          packages = with pkgs.rPackages; [
-            # Core packages for introspection
-            jsonlite
-            # rix for testing
-            rix
-          ];
+          packages = [];
         };
 
       in {

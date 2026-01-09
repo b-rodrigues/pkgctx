@@ -6,7 +6,8 @@ Extracts structured, compact API specifications from R or Python packages for us
 
 ## Features
 
-- **Language support**: R and Python
+- **Language support**: R (CRAN, GitHub) and Python (PyPI, GitHub)
+- **Source-based**: Downloads and parses source code on demand (no installation required)
 - **Formats**: YAML (default, token-efficient) or JSON
 - **Deterministic**: Reproducible via Nix flake
 - **Token-efficient**: Compact mode reduces output by ~67%
@@ -40,11 +41,17 @@ cargo build --release
 ### Basic Usage
 
 ```bash
-# Extract R package to YAML
-pkgctx r rix > rix.ctx.yaml
+# Extract R package from CRAN
+pkgctx r dplyr > dplyr.ctx.yaml
 
-# Extract Python package to JSON
-pkgctx python json --format json > json.ctx.json
+# Extract R package from GitHub
+pkgctx r github:ropensci/rix > rix.ctx.yaml
+
+# Extract Python package from PyPI
+pkgctx python requests > requests.ctx.yaml
+
+# Extract Python package from GitHub
+pkgctx python github:psf/requests > requests.ctx.yaml
 ```
 
 ### Options
@@ -60,14 +67,14 @@ pkgctx python json --format json > json.ctx.json
 ### Examples
 
 ```bash
-# Compact output for LLM context window
+# Compact output for LLM context window (from CRAN)
 pkgctx r dplyr --compact > dplyr.ctx.yaml
 
-# Full extraction with classes
+# Full extraction with classes (from PyPI)
 pkgctx python numpy --emit-classes > numpy.ctx.yaml
 
-# Maximum compression
-pkgctx r rix --compact --hoist-common-args > rix.ctx.yaml
+# Maximum compression (from GitHub)
+pkgctx r github:ropensci/rix --compact --hoist-common-args > rix.ctx.yaml
 ```
 
 ## Output Schema (v1.1)

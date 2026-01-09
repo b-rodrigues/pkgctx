@@ -55,7 +55,8 @@ impl PackageSource {
 
 /// Downloaded package with extracted source
 pub struct FetchedPackage {
-    /// Temporary directory containing extracted source
+    /// Temporary directory containing extracted source (kept alive by RAII)
+    #[allow(dead_code)]
     pub temp_dir: TempDir,
     /// Path to the package source root
     pub source_path: PathBuf,
