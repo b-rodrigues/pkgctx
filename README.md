@@ -14,6 +14,15 @@ Extracts structured, compact API specifications from R or Python packages for us
 
 ## Installation
 
+### Run directly from GitHub (no installation needed)
+
+```bash
+# Run pkgctx directly without cloning
+nix run github:b-rodrigues/pkgctx -- r rix > rix.ctx.yaml
+```
+
+### Build from source
+
 ```bash
 # Clone the repository
 git clone https://github.com/b-rodrigues/pkgctx.git
