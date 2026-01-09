@@ -4,7 +4,7 @@
 //! that appear in many functions and moves their descriptions to the
 //! package record's common_arguments field.
 
-use crate::schema::{FunctionRecord, PackageRecord, Record};
+use crate::schema::Record;
 use std::collections::{BTreeMap, HashMap};
 
 /// Minimum number of occurrences for an argument to be considered "common"

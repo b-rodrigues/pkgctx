@@ -5,7 +5,7 @@
 
 use crate::extractor::Extractor;
 use crate::schema::{
-    ClassRecord, Example, FunctionRecord, PackageRecord, Record, SCHEMA_VERSION,
+    ClassRecord, FunctionRecord, PackageRecord, Record, SCHEMA_VERSION,
 };
 use crate::ExtractOptions;
 use anyhow::{Context, Result};
