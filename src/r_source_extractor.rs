@@ -609,18 +609,185 @@ fn extract_functions_from_r(
     functions
 }
 
+/// Remove Rd markup and normalize whitespace
 fn sanitize(s: &str) -> String {
-    // Remove Rd markup and normalize whitespace
-    let s = s
-        .replace("\\code{", "")
-        .replace("\\link{", "")
-        .replace("\\pkg{", "")
-        .replace("\\emph{", "")
-        .replace("\\strong{", "")
-        .replace("}", "")
-        .replace("\\n", " ")
-        .replace('\n', " ");
+    let stripped = strip_rd_markup(s);
+    // Normalize whitespace
+    stripped.split_whitespace().collect::<Vec<_>>().join(" ")
+}
 
-    let s: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    s.trim().to_string()
+/// Strip all Rd markup commands, keeping their content where appropriate
+fn strip_rd_markup(content: &str) -> String {
+    let mut result = String::new();
+    let mut chars = content.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            // Collect the command name
+            let mut cmd = String::new();
+            while let Some(&nc) = chars.peek() {
+                if nc.is_alphabetic() || nc == '_' {
+                    cmd.push(chars.next().unwrap());
+                } else {
+                    break;
+                }
+            }
+
+            // Determine how to handle this command
+            match cmd.as_str() {
+                // Commands whose content we want to keep
+                "code" | "link" | "pkg" | "emph" | "strong" | "bold" | "sQuote" | "dQuote"
+                | "file" | "option" | "var" | "env" | "command" | "dfn" | "cite" | "acronym"
+                | "samp" | "kbd" => {
+                    // Skip opening brace if present, extract content
+                    skip_whitespace(&mut chars);
+                    if chars.peek() == Some(&'{') {
+                        chars.next();
+                        result.push_str(&extract_brace_content_nested(&mut chars));
+                    }
+                }
+                // Commands with [optional]{required} that we want the required part from
+                "href" | "url" => {
+                    skip_whitespace(&mut chars);
+                    // For \href{url}{text}, we want the text; for \url{url}, we want the url
+                    if chars.peek() == Some(&'{') {
+                        chars.next();
+                        let first = extract_brace_content_nested(&mut chars);
+                        skip_whitespace(&mut chars);
+                        if chars.peek() == Some(&'{') {
+                            chars.next();
+                            let second = extract_brace_content_nested(&mut chars);
+                            // For \href, second is display text
+                            result.push_str(&strip_rd_markup(&second));
+                        } else {
+                            // For \url, just the URL
+                            result.push_str(&first);
+                        }
+                    }
+                }
+                // linkS4class, linkS3class - just get the class name
+                "linkS4class" | "linkS3class" => {
+                    skip_whitespace(&mut chars);
+                    if chars.peek() == Some(&'{') {
+                        chars.next();
+                        result.push_str(&extract_brace_content_nested(&mut chars));
+                    }
+                }
+                // Commands to completely skip (including their content)
+                "section" | "subsection" | "seealso" | "author" | "references" | "source"
+                | "format" | "note" | "keyword" | "concept" | "alias" | "name" | "docType"
+                | "title" | "encoding" | "Rdversion" => {
+                    skip_whitespace(&mut chars);
+                    if chars.peek() == Some(&'{') {
+                        chars.next();
+                        let _ = extract_brace_content_nested(&mut chars);
+                    }
+                }
+                // \item in arguments - skip the name, keep description
+                "item" => {
+                    skip_whitespace(&mut chars);
+                    // Skip the name part
+                    if chars.peek() == Some(&'{') {
+                        chars.next();
+                        let _ = extract_brace_content_nested(&mut chars);
+                    }
+                    skip_whitespace(&mut chars);
+                    // Get the description part
+                    if chars.peek() == Some(&'{') {
+                        chars.next();
+                        let desc = extract_brace_content_nested(&mut chars);
+                        result.push_str(&strip_rd_markup(&desc));
+                        result.push(' ');
+                    }
+                }
+                // \describe, \itemize, \enumerate - process their content
+                "describe" | "itemize" | "enumerate" => {
+                    skip_whitespace(&mut chars);
+                    if chars.peek() == Some(&'{') {
+                        chars.next();
+                        let inner = extract_brace_content_nested(&mut chars);
+                        result.push_str(&strip_rd_markup(&inner));
+                    }
+                }
+                // \verb - just get the content (handles \verb{} or \verb|| forms)
+                "verb" => {
+                    skip_whitespace(&mut chars);
+                    if let Some(&delim) = chars.peek() {
+                        if delim == '{' {
+                            chars.next();
+                            result.push_str(&extract_brace_content_nested(&mut chars));
+                        } else {
+                            // Handle \verb|...|
+                            chars.next();
+                            for nc in chars.by_ref() {
+                                if nc == delim {
+                                    break;
+                                }
+                                result.push(nc);
+                            }
+                        }
+                    }
+                }
+                // \dots, \ldots -> ...
+                "dots" | "ldots" => {
+                    result.push_str("...");
+                }
+                // \R -> R
+                "R" => {
+                    result.push('R');
+                }
+                // \cr, \tab -> space
+                "cr" | "tab" => {
+                    result.push(' ');
+                }
+                // Unknown command - try to extract content if followed by brace
+                _ => {
+                    skip_whitespace(&mut chars);
+                    if chars.peek() == Some(&'{') {
+                        chars.next();
+                        let inner = extract_brace_content_nested(&mut chars);
+                        result.push_str(&strip_rd_markup(&inner));
+                    }
+                }
+            }
+        } else if c == '{' || c == '}' {
+            // Stray braces - skip them
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+
+fn skip_whitespace(chars: &mut std::iter::Peekable<std::str::Chars>) {
+    while let Some(&c) = chars.peek() {
+        if c.is_whitespace() {
+            chars.next();
+        } else {
+            break;
+        }
+    }
+}
+
+fn extract_brace_content_nested(chars: &mut std::iter::Peekable<std::str::Chars>) -> String {
+    let mut content = String::new();
+    let mut depth = 1;
+
+    for c in chars.by_ref() {
+        if c == '{' {
+            depth += 1;
+            content.push(c);
+        } else if c == '}' {
+            depth -= 1;
+            if depth == 0 {
+                break;
+            }
+            content.push(c);
+        } else {
+            content.push(c);
+        }
+    }
+
+    content
 }
