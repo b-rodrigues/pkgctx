@@ -321,21 +321,27 @@ fn count_braces(line: &str) -> isize {
 }
 
 /// Parse example content into separate code blocks.
-/// Splits on blank lines or comment lines to create distinct examples.
+/// Strips Rd directives and splits on balanced code blocks.
 fn parse_example_blocks(content: &str) -> Vec<String> {
+    // First, strip all Rd directives from the content
+    let cleaned = strip_rd_directives(content);
+
     let mut examples = Vec::new();
     let mut current_block = String::new();
     let mut paren_depth: usize = 0;
     let mut in_string = false;
     let mut prev_char = ' ';
 
-    for line in content.lines() {
+    for line in cleaned.lines() {
         let trimmed = line.trim();
 
         // Skip empty lines between examples, but only if we're not in a function call
         if trimmed.is_empty() {
             if !current_block.is_empty() && paren_depth == 0 {
-                examples.push(current_block.trim().to_string());
+                let block = current_block.trim().to_string();
+                if is_valid_example(&block) {
+                    examples.push(block);
+                }
                 current_block.clear();
             }
             continue;
@@ -350,7 +356,7 @@ fn parse_example_blocks(content: &str) -> Vec<String> {
         if !current_block.is_empty() {
             current_block.push('\n');
         }
-        current_block.push_str(line);
+        current_block.push_str(trimmed);
 
         // Track parenthesis depth to know when a function call is complete
         for c in trimmed.chars() {
@@ -372,8 +378,11 @@ fn parse_example_blocks(content: &str) -> Vec<String> {
         if paren_depth == 0 && !trimmed.ends_with(',') && !trimmed.ends_with('(') {
             // Check if next meaningful operation or if this looks complete
             let last_char = trimmed.chars().last().unwrap_or(' ');
-            if last_char == ')' || last_char == '}' || !trimmed.contains('(') {
-                examples.push(current_block.trim().to_string());
+            if last_char == ')' || !trimmed.contains('(') {
+                let block = current_block.trim().to_string();
+                if is_valid_example(&block) {
+                    examples.push(block);
+                }
                 current_block.clear();
             }
         }
@@ -381,11 +390,81 @@ fn parse_example_blocks(content: &str) -> Vec<String> {
 
     // Don't forget the last block
     if !current_block.is_empty() {
-        examples.push(current_block.trim().to_string());
+        let block = current_block.trim().to_string();
+        if is_valid_example(&block) {
+            examples.push(block);
+        }
     }
 
-    // Filter out empty examples
-    examples.into_iter().filter(|e| !e.is_empty()).collect()
+    examples
+}
+
+/// Strip Rd directives like \dontrun{}, \donttest{}, \dontshow{} from example content
+fn strip_rd_directives(content: &str) -> String {
+    let mut result = String::new();
+    let mut chars = content.chars().peekable();
+    let mut brace_depth_to_skip: usize = 0;
+
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            // Check for Rd directives
+            let mut directive = String::from(c);
+            while let Some(&nc) = chars.peek() {
+                if nc.is_alphabetic() {
+                    directive.push(chars.next().unwrap());
+                } else {
+                    break;
+                }
+            }
+
+            // Check if this is a directive we want to skip
+            if matches!(
+                directive.as_str(),
+                "\\dontrun" | "\\donttest" | "\\dontshow" | "\\donteval"
+            ) {
+                // Skip the opening brace
+                while let Some(&nc) = chars.peek() {
+                    if nc == '{' {
+                        chars.next();
+                        brace_depth_to_skip = 1;
+                        break;
+                    } else if nc.is_whitespace() {
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+            } else {
+                // Not a directive we care about, keep it
+                result.push_str(&directive);
+            }
+        } else if brace_depth_to_skip > 0 {
+            // We're inside a directive we're stripping
+            if c == '{' {
+                brace_depth_to_skip += 1;
+            } else if c == '}' {
+                brace_depth_to_skip -= 1;
+                // When we exit the directive, don't add the closing brace
+                if brace_depth_to_skip == 0 {
+                    continue;
+                }
+            }
+            // Keep the content inside the directive (just not the directive itself)
+            if brace_depth_to_skip > 0 {
+                result.push(c);
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+
+/// Check if an example block is valid (not just whitespace or stray braces)
+fn is_valid_example(block: &str) -> bool {
+    let trimmed = block.trim();
+    !trimmed.is_empty() && trimmed != "}" && trimmed != "{" && !trimmed.starts_with("\\")
 }
 
 /// Parse R files for function definitions
