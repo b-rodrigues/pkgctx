@@ -85,7 +85,7 @@ fn main() -> Result<()> {
             eprintln!("Fetching R package: {}", package);
 
             let source = fetch::PackageSource::parse(&package, "r")?;
-            
+
             match source {
                 fetch::PackageSource::Cran(name) => {
                     eprintln!("  → Downloading from CRAN...");
@@ -130,7 +130,7 @@ fn main() -> Result<()> {
             eprintln!("Fetching Python package: {}", package);
 
             let source = fetch::PackageSource::parse(&package, "python")?;
-            
+
             match source {
                 fetch::PackageSource::PyPI(name) => {
                     eprintln!("  → Downloading from PyPI...");

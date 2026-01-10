@@ -46,14 +46,14 @@ impl PackageSource {
             } else {
                 PathBuf::from(path_str)
             };
-            
+
             let canonical = path
                 .canonicalize()
                 .with_context(|| format!("Local path does not exist: {}", path.display()))?;
-            
+
             return Ok(PackageSource::Local(canonical));
         }
-        
+
         if let Some(rest) = spec.strip_prefix("github:") {
             let (repo_part, ref_) = if let Some(at_pos) = rest.find('@') {
                 (&rest[..at_pos], Some(rest[at_pos + 1..].to_string()))
@@ -108,11 +108,11 @@ impl PackageInfo for FetchedPackage {
     fn source_path(&self) -> &std::path::Path {
         &self.source_path
     }
-    
+
     fn name(&self) -> &str {
         &self.name
     }
-    
+
     fn version(&self) -> Option<&str> {
         self.version.as_deref()
     }
@@ -376,7 +376,7 @@ fn parse_python_package_info(path: &std::path::Path) -> (Option<String>, Option<
     if let Ok(content) = std::fs::read_to_string(&pyproject_path) {
         let mut name = None;
         let mut version = None;
-        
+
         for line in content.lines() {
             let line = line.trim();
             if line.starts_with("name") {
@@ -389,18 +389,18 @@ fn parse_python_package_info(path: &std::path::Path) -> (Option<String>, Option<
                 }
             }
         }
-        
+
         if name.is_some() {
             return (name, version);
         }
     }
-    
+
     // Fallback to setup.py
     let setup_path = path.join("setup.py");
     if let Ok(content) = std::fs::read_to_string(&setup_path) {
         let mut name = None;
         let mut version = None;
-        
+
         for line in content.lines() {
             let line = line.trim();
             if line.contains("name=") || line.contains("name =") {
@@ -413,10 +413,10 @@ fn parse_python_package_info(path: &std::path::Path) -> (Option<String>, Option<
                 }
             }
         }
-        
+
         return (name, version);
     }
-    
+
     (None, None)
 }
 
@@ -454,17 +454,16 @@ pub fn fetch_local_r_package(path: &std::path::Path) -> Result<LocalPackage> {
             path.display()
         );
     }
-    
-    let name = parse_description_name(path)
-        .unwrap_or_else(|| {
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("unknown")
-                .to_string()
-        });
-    
+
+    let name = parse_description_name(path).unwrap_or_else(|| {
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string()
+    });
+
     let version = parse_description_version(path);
-    
+
     Ok(LocalPackage {
         source_path: path.to_path_buf(),
         name,
@@ -478,31 +477,32 @@ pub fn fetch_local_python_package(path: &std::path::Path) -> Result<LocalPackage
     let has_pyproject = path.join("pyproject.toml").exists();
     let has_setup_py = path.join("setup.py").exists();
     let has_setup_cfg = path.join("setup.cfg").exists();
-    let has_init = path.join("__init__.py").exists() 
+    let has_init = path.join("__init__.py").exists()
         || std::fs::read_dir(path)
             .map(|entries| {
-                entries.filter_map(|e| e.ok())
+                entries
+                    .filter_map(|e| e.ok())
                     .filter(|e| e.path().is_dir())
                     .any(|e| e.path().join("__init__.py").exists())
             })
             .unwrap_or(false);
-    
+
     if !has_pyproject && !has_setup_py && !has_setup_cfg && !has_init {
         anyhow::bail!(
             "Not a valid Python package: no pyproject.toml, setup.py, setup.cfg, or __init__.py found at {}",
             path.display()
         );
     }
-    
+
     let (name, version) = parse_python_package_info(path);
-    
+
     let name = name.unwrap_or_else(|| {
         path.file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown")
             .to_string()
     });
-    
+
     Ok(LocalPackage {
         source_path: path.to_path_buf(),
         name,
@@ -524,13 +524,12 @@ impl PackageInfo for LocalPackage {
     fn source_path(&self) -> &std::path::Path {
         &self.source_path
     }
-    
+
     fn name(&self) -> &str {
         &self.name
     }
-    
+
     fn version(&self) -> Option<&str> {
         self.version.as_deref()
     }
 }
-

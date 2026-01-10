@@ -13,8 +13,10 @@ use std::process::Command;
 /// Extract records from a Python package source directory
 pub fn extract_from_source(pkg: &dyn PackageInfo, options: &ExtractOptions) -> Result<Vec<Record>> {
     // Use Python AST to parse the source
-    let py_script =
-        generate_source_parser(&pkg.source_path().to_string_lossy(), options.include_internal);
+    let py_script = generate_source_parser(
+        &pkg.source_path().to_string_lossy(),
+        options.include_internal,
+    );
 
     let output = Command::new("python3")
         .args(["-c", &py_script])
