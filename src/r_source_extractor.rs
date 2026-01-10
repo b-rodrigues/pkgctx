@@ -160,6 +160,7 @@ fn parse_rd_content(content: &str) -> Result<RdDoc> {
     // Simple Rd parser - extract sections
     let mut current_section = String::new();
     let mut section_content = String::new();
+    let mut examples_content = String::new();
     let mut brace_depth: isize = 0;
 
     for line in content.lines() {
@@ -183,6 +184,7 @@ fn parse_rd_content(content: &str) -> Result<RdDoc> {
             brace_depth = 1;
         } else if line.starts_with("\\examples{") {
             current_section = "examples".to_string();
+            examples_content.clear();
             brace_depth = 1;
         } else if current_section == "arguments" && line.starts_with("\\item{") {
             // Parse argument: \item{name}{description}
@@ -194,9 +196,16 @@ fn parse_rd_content(content: &str) -> Result<RdDoc> {
             brace_depth -= line.chars().filter(|&c| c == '}').count() as isize;
 
             if current_section == "examples" && !line.starts_with('%') {
-                let ex_line = line.trim_start_matches("\\dontrun{").trim_end_matches('}');
-                if !ex_line.is_empty() {
-                    doc.examples.push(sanitize(ex_line));
+                // Collect example lines, stripping \dontrun{} wrappers
+                let ex_line = line
+                    .trim_start_matches("\\dontrun{")
+                    .trim_start_matches("\\donttest{")
+                    .trim_start_matches("\\dontshow{");
+                if !ex_line.is_empty() && ex_line != "}" {
+                    if !examples_content.is_empty() {
+                        examples_content.push('\n');
+                    }
+                    examples_content.push_str(ex_line);
                 }
             } else if !current_section.is_empty() && current_section != "arguments" {
                 section_content.push(' ');
@@ -208,6 +217,10 @@ fn parse_rd_content(content: &str) -> Result<RdDoc> {
                     "title" => doc.title = Some(sanitize(&section_content)),
                     "description" => doc.description = Some(sanitize(&section_content)),
                     "value" => doc.value = Some(sanitize(&section_content)),
+                    "examples" => {
+                        // Parse collected examples into separate code blocks
+                        doc.examples = parse_example_blocks(&examples_content);
+                    }
                     _ => {}
                 }
                 current_section.clear();
@@ -243,6 +256,74 @@ fn parse_item(line: &str) -> Option<(String, String)> {
         .trim_end_matches('}')
         .to_string();
     Some((name, desc))
+}
+
+/// Parse example content into separate code blocks.
+/// Splits on blank lines or comment lines to create distinct examples.
+fn parse_example_blocks(content: &str) -> Vec<String> {
+    let mut examples = Vec::new();
+    let mut current_block = String::new();
+    let mut paren_depth: usize = 0;
+    let mut in_string = false;
+    let mut prev_char = ' ';
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        // Skip empty lines between examples, but only if we're not in a function call
+        if trimmed.is_empty() {
+            if !current_block.is_empty() && paren_depth == 0 {
+                examples.push(current_block.trim().to_string());
+                current_block.clear();
+            }
+            continue;
+        }
+
+        // Skip pure comment lines as example separators (but include them in blocks)
+        if trimmed.starts_with('#') && current_block.is_empty() {
+            continue;
+        }
+
+        // Add line to current block
+        if !current_block.is_empty() {
+            current_block.push('\n');
+        }
+        current_block.push_str(line);
+
+        // Track parenthesis depth to know when a function call is complete
+        for c in trimmed.chars() {
+            if c == '"' && prev_char != '\\' {
+                in_string = !in_string;
+            }
+            if !in_string {
+                if c == '(' {
+                    paren_depth += 1;
+                } else if c == ')' {
+                    paren_depth = paren_depth.saturating_sub(1);
+                }
+            }
+            prev_char = c;
+        }
+
+        // If parentheses are balanced and line doesn't end with continuation,
+        // consider the example complete
+        if paren_depth == 0 && !trimmed.ends_with(',') && !trimmed.ends_with('(') {
+            // Check if next meaningful operation or if this looks complete
+            let last_char = trimmed.chars().last().unwrap_or(' ');
+            if last_char == ')' || last_char == '}' || !trimmed.contains('(') {
+                examples.push(current_block.trim().to_string());
+                current_block.clear();
+            }
+        }
+    }
+
+    // Don't forget the last block
+    if !current_block.is_empty() {
+        examples.push(current_block.trim().to_string());
+    }
+
+    // Filter out empty examples
+    examples.into_iter().filter(|e| !e.is_empty()).collect()
 }
 
 /// Parse R files for function definitions
