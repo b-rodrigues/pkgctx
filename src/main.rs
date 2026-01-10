@@ -103,6 +103,11 @@ fn process_r_package(package: &str, options: &ExtractOptions) -> Result<()> {
             let pkg = fetch::fetch_cran_package(&name)?;
             process_package(&pkg, options, "R")
         }
+        fetch::PackageSource::Bioconductor(name) => {
+            eprintln!("  → Downloading from Bioconductor...");
+            let pkg = fetch::fetch_bioconductor_package(&name)?;
+            process_package(&pkg, options, "R")
+        }
         fetch::PackageSource::GitHub { owner, repo, ref_ } => {
             eprintln!("  → Downloading from GitHub: {owner}/{repo}...");
             let pkg = fetch::fetch_github_r_package(&owner, &repo, ref_.as_deref())?;
@@ -141,8 +146,8 @@ fn process_python_package(package: &str, options: &ExtractOptions) -> Result<()>
             let pkg = fetch::fetch_local_python_package(&path)?;
             process_package(&pkg, options, "Python")
         }
-        fetch::PackageSource::Cran(_) => {
-            anyhow::bail!("CRAN source is not valid for Python packages")
+        fetch::PackageSource::Cran(_) | fetch::PackageSource::Bioconductor(_) => {
+            anyhow::bail!("CRAN/Bioconductor source is not valid for Python packages")
         }
     }
 }

@@ -25,7 +25,7 @@
 
         # R minimal environment
         rWithPackages = pkgs.rWrapper.override {
-          packages = [];
+          packages = [ pkgs.rPackages.BiocManager ];
         };
 
       in {

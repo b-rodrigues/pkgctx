@@ -6,7 +6,7 @@ Extracts structured, compact API specifications from R or Python packages for us
 
 ## Features
 
-- **Language support**: R (CRAN, GitHub, local) and Python (PyPI, GitHub, local)
+- **Language support**: R (CRAN, Bioconductor, GitHub, local) and Python (PyPI, GitHub, local)
 - **Source-based**: Downloads and parses source code on demand (no installation required)
 - **Local path support**: Use `.` or `./path` to extract from local directories (great for CI)
 - **Formats**: YAML (default, token-efficient) or JSON
@@ -45,6 +45,9 @@ cargo build --release
 # Extract R package from CRAN
 pkgctx r dplyr > dplyr.ctx.yaml
 
+# Extract R package from Bioconductor
+pkgctx r bioc:GenomicRanges > genomicranges.ctx.yaml
+
 # Extract R package from GitHub
 pkgctx r github:ropensci/rix > rix.ctx.yaml
 
@@ -75,6 +78,9 @@ pkgctx python ./mypackage > mypackage.ctx.yaml
 ```bash
 # Compact output for LLM context window (from CRAN)
 pkgctx r dplyr --compact > dplyr.ctx.yaml
+
+# Extract from Bioconductor
+pkgctx r bioc:GenomicRanges --compact > genomicranges.ctx.yaml
 
 # Full extraction with classes (from PyPI)
 pkgctx python numpy --emit-classes > numpy.ctx.yaml

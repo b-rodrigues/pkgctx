@@ -12,6 +12,8 @@ use tempfile::TempDir;
 pub enum PackageSource {
     /// CRAN package (e.g., "dplyr")
     Cran(String),
+    /// Bioconductor package (e.g., "GenomicRanges")
+    Bioconductor(String),
     /// `PyPI` package (e.g., "numpy")
     PyPI(String),
     /// GitHub repository (e.g., "tidyverse/dplyr" or "ropensci/rix")
@@ -70,6 +72,10 @@ impl PackageSource {
                 ref_,
             })
         } else {
+            if let Some(name) = spec.strip_prefix("bioc:") {
+                return Ok(Self::Bioconductor(name.to_string()));
+            }
+
             match language {
                 "r" | "R" => Ok(Self::Cran(spec.to_string())),
                 "python" | "Python" => Ok(Self::PyPI(spec.to_string())),
@@ -187,6 +193,86 @@ pub fn fetch_cran_package(name: &str) -> Result<FetchedPackage> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("Failed to download CRAN package '{name}': {stderr}");
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut version = None;
+    let mut source_path = temp_dir.path().join(name);
+
+    for line in stdout.lines() {
+        if let Some(v) = line.strip_prefix("VERSION: ") {
+            version = Some(v.trim().to_string());
+        }
+        if let Some(p) = line.strip_prefix("PATH: ") {
+            source_path = PathBuf::from(p.trim());
+        }
+    }
+
+    Ok(FetchedPackage {
+        temp_dir,
+        source_path,
+        name: name.to_string(),
+        version,
+    })
+}
+
+/// Fetch an R package from Bioconductor
+pub fn fetch_bioconductor_package(name: &str) -> Result<FetchedPackage> {
+    let temp_dir = TempDir::new().context("Failed to create temp directory")?;
+    let destdir = path_to_str(temp_dir.path())?;
+
+    // Use R to download the package via BiocManager
+    let r_script = format!(
+        r#"
+        pkg <- "{name}"
+        destdir <- "{destdir}"
+        
+        if (!requireNamespace("BiocManager", quietly = TRUE)) {{
+            stop("BiocManager must be installed to fetch Bioconductor packages")
+        }}
+        
+        # Ensure CRAN mirror is set
+        options(repos = c(CRAN = "https://cloud.r-project.org"))
+        
+        # Get Bioconductor repositories
+        repos <- BiocManager::repositories()
+        
+        # Get package info
+        available <- available.packages(repos = repos)
+        if (!(pkg %in% rownames(available))) {{
+            stop(paste("Package", pkg, "not found in Bioconductor repositories"))
+        }}
+        
+        version <- available[pkg, "Version"]
+        
+        # Download source tarball using download.packages for reliability
+        # Pass 'available' to avoid re-fetching metadata
+        dl_res <- download.packages(pkg, destdir, available = available, type = "source", quiet = TRUE)
+        
+        if (nrow(dl_res) < 1) {{
+            stop("Failed to download package")
+        }}
+        
+        destfile <- dl_res[1, 2]
+        
+        # Extract
+        untar(destfile, exdir = destdir)
+        
+        # Output info
+        cat("VERSION:", version, "\n")
+        # Usually extract to a directory with the package name
+        cat("PATH:", file.path(destdir, pkg), "\n")
+    "#
+    );
+
+    let output = Command::new("Rscript")
+        .args(["--vanilla", "-e", &r_script])
+        .output()
+        .context("Failed to run Rscript for Bioconductor download")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Failed to download Bioconductor package '{name}': {stderr}");
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
