@@ -12,6 +12,7 @@ mod schema;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
+use fetch::PackageInfo;
 use std::io::{self, Write};
 
 /// Compile software packages into LLM-ready context
@@ -27,16 +28,16 @@ struct Cli {
 enum Commands {
     /// Extract context from an R package (CRAN, GitHub, or local path)
     R {
-        /// Package specifier: name (CRAN), github:owner/repo[@ref], or local path (., ./path, /path)
+        /// Package specifier: name (CRAN), `github:owner/repo[@ref]`, or local path (., ./path, /path)
         package: String,
 
         #[command(flatten)]
         options: ExtractOptions,
     },
 
-    /// Extract context from a Python package (PyPI, GitHub, or local path)
+    /// Extract context from a Python package (`PyPI`, GitHub, or local path)
     Python {
-        /// Package specifier: name (PyPI), github:owner/repo[@ref], or local path (., ./path, /path)
+        /// Package specifier: name (`PyPI`), `github:owner/repo[@ref]`, or local path (., ./path, /path)
         package: String,
 
         #[command(flatten)]
@@ -85,117 +86,86 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::R { package, options } => {
-            eprintln!("Fetching R package: {}", package);
+        Commands::R { package, options } => process_r_package(&package, &options),
+        Commands::Python { package, options } => process_python_package(&package, &options),
+    }
+}
 
-            let source = fetch::PackageSource::parse(&package, "r")?;
+/// Process an R package from any source
+fn process_r_package(package: &str, options: &ExtractOptions) -> Result<()> {
+    eprintln!("Fetching R package: {package}");
 
-            match source {
-                fetch::PackageSource::Cran(name) => {
-                    eprintln!("  → Downloading from CRAN...");
-                    let pkg = fetch::fetch_cran_package(&name)?;
-                    eprintln!(
-                        "  → Version: {}",
-                        pkg.version.as_deref().unwrap_or("unknown")
-                    );
-                    eprintln!("  → Parsing source...");
-                    let records = r_source_extractor::extract_from_source(&pkg, &options)?;
-                    let records = apply_transformations(records, &options);
-                    output_records(&records, options.format, &pkg.name, "R", options.no_header)?;
-                }
-                fetch::PackageSource::GitHub { owner, repo, ref_ } => {
-                    eprintln!("  → Downloading from GitHub: {}/{}...", owner, repo);
-                    let pkg = fetch::fetch_github_r_package(&owner, &repo, ref_.as_deref())?;
-                    eprintln!(
-                        "  → Version: {}",
-                        pkg.version.as_deref().unwrap_or("unknown")
-                    );
-                    eprintln!("  → Parsing source...");
-                    let records = r_source_extractor::extract_from_source(&pkg, &options)?;
-                    let records = apply_transformations(records, &options);
-                    output_records(&records, options.format, &pkg.name, "R", options.no_header)?;
-                }
-                fetch::PackageSource::Local(path) => {
-                    eprintln!("  → Using local path: {}...", path.display());
-                    let pkg = fetch::fetch_local_r_package(&path)?;
-                    eprintln!(
-                        "  → Version: {}",
-                        pkg.version.as_deref().unwrap_or("unknown")
-                    );
-                    eprintln!("  → Parsing source...");
-                    let records = r_source_extractor::extract_from_source(&pkg, &options)?;
-                    let records = apply_transformations(records, &options);
-                    output_records(&records, options.format, &pkg.name, "R", options.no_header)?;
-                }
-                _ => anyhow::bail!("Invalid source for R package"),
-            };
+    let source = fetch::PackageSource::parse(package, "r")?;
+
+    match source {
+        fetch::PackageSource::Cran(name) => {
+            eprintln!("  → Downloading from CRAN...");
+            let pkg = fetch::fetch_cran_package(&name)?;
+            process_package(&pkg, options, "R")
         }
-        Commands::Python { package, options } => {
-            eprintln!("Fetching Python package: {}", package);
-
-            let source = fetch::PackageSource::parse(&package, "python")?;
-
-            match source {
-                fetch::PackageSource::PyPI(name) => {
-                    eprintln!("  → Downloading from PyPI...");
-                    let pkg = fetch::fetch_pypi_package(&name)?;
-                    eprintln!(
-                        "  → Version: {}",
-                        pkg.version.as_deref().unwrap_or("unknown")
-                    );
-                    eprintln!("  → Parsing source...");
-                    let records = python_source_extractor::extract_from_source(&pkg, &options)?;
-                    let records = apply_transformations(records, &options);
-                    output_records(
-                        &records,
-                        options.format,
-                        &pkg.name,
-                        "Python",
-                        options.no_header,
-                    )?;
-                }
-                fetch::PackageSource::GitHub { owner, repo, ref_ } => {
-                    eprintln!("  → Downloading from GitHub: {}/{}...", owner, repo);
-                    let pkg = fetch::fetch_github_python_package(&owner, &repo, ref_.as_deref())?;
-                    eprintln!(
-                        "  → Version: {}",
-                        pkg.version.as_deref().unwrap_or("unknown")
-                    );
-                    eprintln!("  → Parsing source...");
-                    let records = python_source_extractor::extract_from_source(&pkg, &options)?;
-                    let records = apply_transformations(records, &options);
-                    output_records(
-                        &records,
-                        options.format,
-                        &pkg.name,
-                        "Python",
-                        options.no_header,
-                    )?;
-                }
-                fetch::PackageSource::Local(path) => {
-                    eprintln!("  → Using local path: {}...", path.display());
-                    let pkg = fetch::fetch_local_python_package(&path)?;
-                    eprintln!(
-                        "  → Version: {}",
-                        pkg.version.as_deref().unwrap_or("unknown")
-                    );
-                    eprintln!("  → Parsing source...");
-                    let records = python_source_extractor::extract_from_source(&pkg, &options)?;
-                    let records = apply_transformations(records, &options);
-                    output_records(
-                        &records,
-                        options.format,
-                        &pkg.name,
-                        "Python",
-                        options.no_header,
-                    )?;
-                }
-                _ => anyhow::bail!("Invalid source for Python package"),
-            };
+        fetch::PackageSource::GitHub { owner, repo, ref_ } => {
+            eprintln!("  → Downloading from GitHub: {owner}/{repo}...");
+            let pkg = fetch::fetch_github_r_package(&owner, &repo, ref_.as_deref())?;
+            process_package(&pkg, options, "R")
+        }
+        fetch::PackageSource::Local(path) => {
+            eprintln!("  → Using local path: {}...", path.display());
+            let pkg = fetch::fetch_local_r_package(&path)?;
+            process_package(&pkg, options, "R")
+        }
+        fetch::PackageSource::PyPI(_) => {
+            anyhow::bail!("PyPI source is not valid for R packages")
         }
     }
+}
 
-    Ok(())
+/// Process a Python package from any source
+fn process_python_package(package: &str, options: &ExtractOptions) -> Result<()> {
+    eprintln!("Fetching Python package: {package}");
+
+    let source = fetch::PackageSource::parse(package, "python")?;
+
+    match source {
+        fetch::PackageSource::PyPI(name) => {
+            eprintln!("  → Downloading from PyPI...");
+            let pkg = fetch::fetch_pypi_package(&name)?;
+            process_package(&pkg, options, "Python")
+        }
+        fetch::PackageSource::GitHub { owner, repo, ref_ } => {
+            eprintln!("  → Downloading from GitHub: {owner}/{repo}...");
+            let pkg = fetch::fetch_github_python_package(&owner, &repo, ref_.as_deref())?;
+            process_package(&pkg, options, "Python")
+        }
+        fetch::PackageSource::Local(path) => {
+            eprintln!("  → Using local path: {}...", path.display());
+            let pkg = fetch::fetch_local_python_package(&path)?;
+            process_package(&pkg, options, "Python")
+        }
+        fetch::PackageSource::Cran(_) => {
+            anyhow::bail!("CRAN source is not valid for Python packages")
+        }
+    }
+}
+
+/// Common processing logic for any package type
+fn process_package(pkg: &dyn PackageInfo, options: &ExtractOptions, language: &str) -> Result<()> {
+    eprintln!("  → Version: {}", pkg.version().unwrap_or("unknown"));
+    eprintln!("  → Parsing source...");
+
+    let records = match language {
+        "R" => r_source_extractor::extract_from_source(pkg, options)?,
+        "Python" => python_source_extractor::extract_from_source(pkg, options)?,
+        _ => anyhow::bail!("Unknown language: {language}"),
+    };
+
+    let records = apply_transformations(records, options);
+    output_records(
+        &records,
+        options.format,
+        pkg.name(),
+        language,
+        options.no_header,
+    )
 }
 
 /// Apply post-extraction transformations based on options.
@@ -216,6 +186,7 @@ fn apply_transformations(
     }
 }
 
+/// Output records to stdout in the specified format
 fn output_records(
     records: &[schema::Record],
     format: OutputFormat,
@@ -236,41 +207,52 @@ fn output_records(
     };
 
     match format {
-        OutputFormat::Yaml => {
-            if let Some(h) = &header {
-                writeln!(handle, "---")?;
-                let yaml = serde_yaml::to_string(h)?;
-                write!(handle, "{}", yaml)?;
-            }
-            for record in records {
-                writeln!(handle, "---")?;
-                let yaml = serde_yaml::to_string(record)?;
-                write!(handle, "{}", yaml)?;
-            }
-        }
-        OutputFormat::Json => {
-            if let Some(h) = &header {
-                let json = serde_json::to_string_pretty(h)?;
-                writeln!(handle, "{}", json)?;
-            }
-            for record in records {
-                let json = serde_json::to_string_pretty(record)?;
-                writeln!(handle, "{}", json)?;
-            }
-        }
+        OutputFormat::Yaml => write_yaml(&mut handle, header.as_ref(), records)?,
+        OutputFormat::Json => write_json(&mut handle, header.as_ref(), records)?,
     }
 
+    Ok(())
+}
+
+/// Write records as YAML
+fn write_yaml(
+    handle: &mut impl Write,
+    header: Option<&schema::Record>,
+    records: &[schema::Record],
+) -> Result<()> {
+    if let Some(h) = header {
+        writeln!(handle, "---")?;
+        write!(handle, "{}", serde_yaml::to_string(h)?)?;
+    }
+    for record in records {
+        writeln!(handle, "---")?;
+        write!(handle, "{}", serde_yaml::to_string(record)?)?;
+    }
+    Ok(())
+}
+
+/// Write records as JSON
+fn write_json(
+    handle: &mut impl Write,
+    header: Option<&schema::Record>,
+    records: &[schema::Record],
+) -> Result<()> {
+    if let Some(h) = header {
+        writeln!(handle, "{}", serde_json::to_string_pretty(h)?)?;
+    }
+    for record in records {
+        writeln!(handle, "{}", serde_json::to_string_pretty(record)?)?;
+    }
     Ok(())
 }
 
 /// Generate LLM instructions for the context header
 fn generate_llm_instructions(pkg_name: &str, language: &str) -> String {
     format!(
-        "This is an LLM-optimized API specification for the {} package '{}'. \
-Use this context to write correct code using {} functions. \
+        "This is an LLM-optimized API specification for the {language} package '{pkg_name}'. \
+Use this context to write correct code using {pkg_name} functions. \
 Each 'function' record describes a public function with its signature, arguments, and purpose. \
 The 'package' record contains metadata. \
-All listed functions are part of the public API.",
-        language, pkg_name, pkg_name
+All listed functions are part of the public API."
     )
 }

@@ -85,7 +85,8 @@ fn parse_description(path: &Path) -> Result<(Option<String>, Option<String>)> {
 /// Parse NAMESPACE file for exported functions
 fn parse_namespace(path: &Path) -> Result<Vec<String>> {
     let ns_path = path.join("NAMESPACE");
-    let content = fs::read_to_string(&ns_path).unwrap_or_default(); // NAMESPACE might not exist
+    // NAMESPACE might not exist for some packages
+    let content = fs::read_to_string(&ns_path).unwrap_or_default();
 
     let mut exports = Vec::new();
 
@@ -133,8 +134,8 @@ fn parse_rd_files(path: &Path) -> Result<BTreeMap<String, RdDoc>> {
                 let name = file_path
                     .file_stem()
                     .and_then(|s| s.to_str())
-                    .unwrap_or("")
-                    .to_string();
+                    .map(ToString::to_string)
+                    .unwrap_or_default();
 
                 if let Ok(doc) = parse_rd_content(&content) {
                     docs.insert(name, doc);
@@ -159,7 +160,7 @@ fn parse_rd_content(content: &str) -> Result<RdDoc> {
     // Simple Rd parser - extract sections
     let mut current_section = String::new();
     let mut section_content = String::new();
-    let mut brace_depth = 0;
+    let mut brace_depth: isize = 0;
 
     for line in content.lines() {
         let line = line.trim();
@@ -189,8 +190,8 @@ fn parse_rd_content(content: &str) -> Result<RdDoc> {
                 doc.arguments.insert(name, sanitize(&desc));
             }
         } else if brace_depth > 0 {
-            brace_depth += line.chars().filter(|c| *c == '{').count() as i32;
-            brace_depth -= line.chars().filter(|c| *c == '}').count() as i32;
+            brace_depth += line.chars().filter(|&c| c == '{').count() as isize;
+            brace_depth -= line.chars().filter(|&c| c == '}').count() as isize;
 
             if current_section == "examples" && !line.starts_with('%') {
                 let ex_line = line.trim_start_matches("\\dontrun{").trim_end_matches('}');
@@ -225,9 +226,10 @@ fn extract_brace_content(line: &str, prefix: &str) -> String {
         .to_string()
 }
 
-fn count_braces(line: &str) -> i32 {
-    line.chars().filter(|c| *c == '{').count() as i32
-        - line.chars().filter(|c| *c == '}').count() as i32
+fn count_braces(line: &str) -> isize {
+    let open = line.chars().filter(|&c| c == '{').count();
+    let close = line.chars().filter(|&c| c == '}').count();
+    open as isize - close as isize
 }
 
 fn parse_item(line: &str) -> Option<(String, String)> {

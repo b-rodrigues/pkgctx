@@ -1,9 +1,9 @@
 //! Package source fetching
 //!
-//! Downloads R packages from CRAN/GitHub and Python packages from PyPI/GitHub.
+//! Downloads R packages from CRAN/GitHub and Python packages from `PyPI`/GitHub.
 
 use anyhow::{Context, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::TempDir;
 
@@ -12,7 +12,7 @@ use tempfile::TempDir;
 pub enum PackageSource {
     /// CRAN package (e.g., "dplyr")
     Cran(String),
-    /// PyPI package (e.g., "numpy")
+    /// `PyPI` package (e.g., "numpy")
     PyPI(String),
     /// GitHub repository (e.g., "tidyverse/dplyr" or "ropensci/rix")
     GitHub {
@@ -28,7 +28,7 @@ impl PackageSource {
     /// Parse a package specifier into a source.
     ///
     /// Formats:
-    /// - `dplyr` (CRAN for R, PyPI for Python)
+    /// - `dplyr` (CRAN for R, `PyPI` for Python)
     /// - `github:owner/repo` or `github:owner/repo@ref`
     /// - `.` or `./path` or `/path` or `~/path` (local path)
     pub fn parse(spec: &str, language: &str) -> Result<Self> {
@@ -51,34 +51,29 @@ impl PackageSource {
                 .canonicalize()
                 .with_context(|| format!("Local path does not exist: {}", path.display()))?;
 
-            return Ok(PackageSource::Local(canonical));
+            return Ok(Self::Local(canonical));
         }
 
         if let Some(rest) = spec.strip_prefix("github:") {
-            let (repo_part, ref_) = if let Some(at_pos) = rest.find('@') {
+            let (repo_part, ref_) = rest.find('@').map_or((rest, None), |at_pos| {
                 (&rest[..at_pos], Some(rest[at_pos + 1..].to_string()))
-            } else {
-                (rest, None)
-            };
+            });
 
             let parts: Vec<&str> = repo_part.split('/').collect();
             if parts.len() != 2 {
-                anyhow::bail!(
-                    "Invalid GitHub spec: expected 'github:owner/repo', got '{}'",
-                    spec
-                );
+                anyhow::bail!("Invalid GitHub spec: expected 'github:owner/repo', got '{spec}'");
             }
 
-            Ok(PackageSource::GitHub {
+            Ok(Self::GitHub {
                 owner: parts[0].to_string(),
                 repo: parts[1].to_string(),
                 ref_,
             })
         } else {
             match language {
-                "r" | "R" => Ok(PackageSource::Cran(spec.to_string())),
-                "python" | "Python" => Ok(PackageSource::PyPI(spec.to_string())),
-                _ => anyhow::bail!("Unknown language: {}", language),
+                "r" | "R" => Ok(Self::Cran(spec.to_string())),
+                "python" | "Python" => Ok(Self::PyPI(spec.to_string())),
+                _ => anyhow::bail!("Unknown language: {language}"),
             }
         }
     }
@@ -86,8 +81,11 @@ impl PackageSource {
 
 /// Common trait for package information (local or fetched)
 pub trait PackageInfo {
-    fn source_path(&self) -> &std::path::Path;
+    /// Get the path to the package source directory
+    fn source_path(&self) -> &Path;
+    /// Get the package name
     fn name(&self) -> &str;
+    /// Get the package version, if available
     fn version(&self) -> Option<&str>;
 }
 
@@ -95,7 +93,7 @@ pub trait PackageInfo {
 pub struct FetchedPackage {
     /// Temporary directory containing extracted source (kept alive by RAII)
     #[allow(dead_code)]
-    pub temp_dir: TempDir,
+    temp_dir: TempDir,
     /// Path to the package source root
     pub source_path: PathBuf,
     /// Package name
@@ -105,7 +103,7 @@ pub struct FetchedPackage {
 }
 
 impl PackageInfo for FetchedPackage {
-    fn source_path(&self) -> &std::path::Path {
+    fn source_path(&self) -> &Path {
         &self.source_path
     }
 
@@ -118,9 +116,40 @@ impl PackageInfo for FetchedPackage {
     }
 }
 
+/// A local package reference (no temp directory needed)
+pub struct LocalPackage {
+    /// Path to the package source root
+    pub source_path: PathBuf,
+    /// Package name
+    pub name: String,
+    /// Package version (if available)
+    pub version: Option<String>,
+}
+
+impl PackageInfo for LocalPackage {
+    fn source_path(&self) -> &Path {
+        &self.source_path
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn version(&self) -> Option<&str> {
+        self.version.as_deref()
+    }
+}
+
+/// Convert a path to a string, returning an error if it contains non-UTF8 characters
+fn path_to_str(path: &Path) -> Result<&str> {
+    path.to_str()
+        .with_context(|| format!("Path contains non-UTF8 characters: {}", path.display()))
+}
+
 /// Fetch an R package from CRAN
 pub fn fetch_cran_package(name: &str) -> Result<FetchedPackage> {
     let temp_dir = TempDir::new().context("Failed to create temp directory")?;
+    let destdir = path_to_str(temp_dir.path())?;
 
     // Use R to download the package
     let r_script = format!(
@@ -147,9 +176,7 @@ pub fn fetch_cran_package(name: &str) -> Result<FetchedPackage> {
         # Output info
         cat("VERSION:", version, "\n")
         cat("PATH:", file.path(destdir, pkg), "\n")
-    "#,
-        name = name,
-        destdir = temp_dir.path().display()
+    "#
     );
 
     let output = Command::new("Rscript")
@@ -159,7 +186,7 @@ pub fn fetch_cran_package(name: &str) -> Result<FetchedPackage> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("Failed to download CRAN package '{}': {}", name, stderr);
+        anyhow::bail!("Failed to download CRAN package '{name}': {stderr}");
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -193,31 +220,25 @@ pub fn fetch_github_r_package(
     let ref_name = ref_.unwrap_or("HEAD");
 
     // Download tarball from GitHub
-    let url = format!(
-        "https://github.com/{}/{}/archive/{}.tar.gz",
-        owner, repo, ref_name
-    );
+    let url = format!("https://github.com/{owner}/{repo}/archive/{ref_name}.tar.gz");
 
     let tarball_path = temp_dir.path().join("source.tar.gz");
+    let tarball_str = path_to_str(&tarball_path)?;
+    let temp_dir_str = path_to_str(temp_dir.path())?;
 
     // Use curl to download
     let output = Command::new("curl")
-        .args(["-sL", "-o", tarball_path.to_str().unwrap(), &url])
+        .args(["-sL", "-o", tarball_str, &url])
         .output()
         .context("Failed to download from GitHub")?;
 
     if !output.status.success() {
-        anyhow::bail!("Failed to download from GitHub: {}", url);
+        anyhow::bail!("Failed to download from GitHub: {url}");
     }
 
     // Extract tarball
     let output = Command::new("tar")
-        .args([
-            "-xzf",
-            tarball_path.to_str().unwrap(),
-            "-C",
-            temp_dir.path().to_str().unwrap(),
-        ])
+        .args(["-xzf", tarball_str, "-C", temp_dir_str])
         .output()
         .context("Failed to extract tarball")?;
 
@@ -226,16 +247,8 @@ pub fn fetch_github_r_package(
     }
 
     // Find the extracted directory (usually repo-ref/)
-    let entries: Vec<_> = std::fs::read_dir(temp_dir.path())?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
-        .collect();
-
-    let source_path = if entries.len() == 1 {
-        entries[0].path()
-    } else {
-        temp_dir.path().to_path_buf()
-    };
+    let source_path =
+        find_single_directory(temp_dir.path())?.unwrap_or_else(|| temp_dir.path().to_path_buf());
 
     // Try to get version from DESCRIPTION
     let version = parse_description_version(&source_path);
@@ -248,9 +261,10 @@ pub fn fetch_github_r_package(
     })
 }
 
-/// Fetch a Python package from PyPI
+/// Fetch a Python package from `PyPI`
 pub fn fetch_pypi_package(name: &str) -> Result<FetchedPackage> {
     let temp_dir = TempDir::new().context("Failed to create temp directory")?;
+    let temp_dir_str = path_to_str(temp_dir.path())?;
 
     // Use pip to download source
     let output = Command::new("python3")
@@ -262,7 +276,7 @@ pub fn fetch_pypi_package(name: &str) -> Result<FetchedPackage> {
             ":all:",
             "--no-deps",
             "-d",
-            temp_dir.path().to_str().unwrap(),
+            temp_dir_str,
             name,
         ])
         .output()
@@ -270,60 +284,31 @@ pub fn fetch_pypi_package(name: &str) -> Result<FetchedPackage> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("Failed to download PyPI package '{}': {}", name, stderr);
+        anyhow::bail!("Failed to download PyPI package '{name}': {stderr}");
     }
 
     // Find the downloaded file and extract it
     let entries: Vec<_> = std::fs::read_dir(temp_dir.path())?
-        .filter_map(|e| e.ok())
+        .filter_map(Result::ok)
         .collect();
 
     if entries.is_empty() {
-        anyhow::bail!("No files downloaded for package '{}'", name);
+        anyhow::bail!("No files downloaded for package '{name}'");
     }
 
     let archive_path = entries[0].path();
-    let archive_name = archive_path.file_name().unwrap().to_str().unwrap();
-
-    // Extract based on file type
-    if archive_name.ends_with(".tar.gz") || archive_name.ends_with(".tgz") {
-        Command::new("tar")
-            .args([
-                "-xzf",
-                archive_path.to_str().unwrap(),
-                "-C",
-                temp_dir.path().to_str().unwrap(),
-            ])
-            .output()?;
-    } else if archive_name.ends_with(".zip") {
-        Command::new("unzip")
-            .args([
-                "-q",
-                archive_path.to_str().unwrap(),
-                "-d",
-                temp_dir.path().to_str().unwrap(),
-            ])
-            .output()?;
-    }
+    extract_archive(&archive_path, temp_dir.path())?;
 
     // Find the extracted directory
-    let entries: Vec<_> = std::fs::read_dir(temp_dir.path())?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
-        .collect();
-
-    let source_path = if entries.len() == 1 {
-        entries[0].path()
-    } else {
-        temp_dir.path().to_path_buf()
-    };
+    let source_path =
+        find_single_directory(temp_dir.path())?.unwrap_or_else(|| temp_dir.path().to_path_buf());
 
     // Parse version from directory name (usually package-version/)
     let version = source_path
         .file_name()
         .and_then(|n| n.to_str())
-        .and_then(|n| n.strip_prefix(&format!("{}-", name)))
-        .map(|v| v.to_string());
+        .and_then(|n| n.strip_prefix(&format!("{name}-")))
+        .map(ToString::to_string);
 
     Ok(FetchedPackage {
         temp_dir,
@@ -343,109 +328,8 @@ pub fn fetch_github_python_package(
     fetch_github_r_package(owner, repo, ref_)
 }
 
-/// Parse version from R DESCRIPTION file
-fn parse_description_version(path: &std::path::Path) -> Option<String> {
-    let desc_path = path.join("DESCRIPTION");
-    if let Ok(content) = std::fs::read_to_string(&desc_path) {
-        for line in content.lines() {
-            if let Some(version) = line.strip_prefix("Version:") {
-                return Some(version.trim().to_string());
-            }
-        }
-    }
-    None
-}
-
-/// Parse package name from R DESCRIPTION file
-fn parse_description_name(path: &std::path::Path) -> Option<String> {
-    let desc_path = path.join("DESCRIPTION");
-    if let Ok(content) = std::fs::read_to_string(&desc_path) {
-        for line in content.lines() {
-            if let Some(name) = line.strip_prefix("Package:") {
-                return Some(name.trim().to_string());
-            }
-        }
-    }
-    None
-}
-
-/// Parse package name/version from Python pyproject.toml or setup.py
-fn parse_python_package_info(path: &std::path::Path) -> (Option<String>, Option<String>) {
-    // Try pyproject.toml first
-    let pyproject_path = path.join("pyproject.toml");
-    if let Ok(content) = std::fs::read_to_string(&pyproject_path) {
-        let mut name = None;
-        let mut version = None;
-
-        for line in content.lines() {
-            let line = line.trim();
-            if line.starts_with("name") {
-                if let Some(val) = extract_toml_string_value(line) {
-                    name = Some(val);
-                }
-            } else if line.starts_with("version") && version.is_none() {
-                if let Some(val) = extract_toml_string_value(line) {
-                    version = Some(val);
-                }
-            }
-        }
-
-        if name.is_some() {
-            return (name, version);
-        }
-    }
-
-    // Fallback to setup.py
-    let setup_path = path.join("setup.py");
-    if let Ok(content) = std::fs::read_to_string(&setup_path) {
-        let mut name = None;
-        let mut version = None;
-
-        for line in content.lines() {
-            let line = line.trim();
-            if line.contains("name=") || line.contains("name =") {
-                if let Some(val) = extract_python_string_value(line, "name") {
-                    name = Some(val);
-                }
-            } else if line.contains("version=") || line.contains("version =") {
-                if let Some(val) = extract_python_string_value(line, "version") {
-                    version = Some(val);
-                }
-            }
-        }
-
-        return (name, version);
-    }
-
-    (None, None)
-}
-
-fn extract_toml_string_value(line: &str) -> Option<String> {
-    let parts: Vec<&str> = line.splitn(2, '=').collect();
-    if parts.len() == 2 {
-        let val = parts[1].trim();
-        // Remove quotes
-        let val = val.trim_matches('"').trim_matches('\'');
-        if !val.is_empty() {
-            return Some(val.to_string());
-        }
-    }
-    None
-}
-
-fn extract_python_string_value(line: &str, key: &str) -> Option<String> {
-    // Match patterns like: name="foo" or name = "foo" or name='foo'
-    let pattern = format!("{}\\s*=\\s*[\"']([^\"']+)[\"']", key);
-    if let Ok(re) = regex::Regex::new(&pattern) {
-        if let Some(caps) = re.captures(line) {
-            return caps.get(1).map(|m| m.as_str().to_string());
-        }
-    }
-    None
-}
-
 /// Load a local R package from the filesystem
-pub fn fetch_local_r_package(path: &std::path::Path) -> Result<LocalPackage> {
+pub fn fetch_local_r_package(path: &Path) -> Result<LocalPackage> {
     // Verify it looks like an R package (has DESCRIPTION file)
     let desc_path = path.join("DESCRIPTION");
     if !desc_path.exists() {
@@ -472,7 +356,7 @@ pub fn fetch_local_r_package(path: &std::path::Path) -> Result<LocalPackage> {
 }
 
 /// Load a local Python package from the filesystem
-pub fn fetch_local_python_package(path: &std::path::Path) -> Result<LocalPackage> {
+pub fn fetch_local_python_package(path: &Path) -> Result<LocalPackage> {
     // Check for common Python package markers
     let has_pyproject = path.join("pyproject.toml").exists();
     let has_setup_py = path.join("setup.py").exists();
@@ -481,7 +365,7 @@ pub fn fetch_local_python_package(path: &std::path::Path) -> Result<LocalPackage
         || std::fs::read_dir(path)
             .map(|entries| {
                 entries
-                    .filter_map(|e| e.ok())
+                    .filter_map(Result::ok)
                     .filter(|e| e.path().is_dir())
                     .any(|e| e.path().join("__init__.py").exists())
             })
@@ -510,26 +394,145 @@ pub fn fetch_local_python_package(path: &std::path::Path) -> Result<LocalPackage
     })
 }
 
-/// A local package reference (no temp directory needed)
-pub struct LocalPackage {
-    /// Path to the package source root
-    pub source_path: PathBuf,
-    /// Package name
-    pub name: String,
-    /// Package version (if available)
-    pub version: Option<String>,
+// ============================================================================
+// Helper functions
+// ============================================================================
+
+/// Find a single directory in the given path, used for finding extracted archives
+fn find_single_directory(path: &Path) -> Result<Option<PathBuf>> {
+    let directories: Vec<_> = std::fs::read_dir(path)?
+        .filter_map(Result::ok)
+        .filter(|e| e.path().is_dir())
+        .collect();
+
+    Ok(if directories.len() == 1 {
+        Some(directories[0].path())
+    } else {
+        None
+    })
 }
 
-impl PackageInfo for LocalPackage {
-    fn source_path(&self) -> &std::path::Path {
-        &self.source_path
+/// Extract an archive (tar.gz, tgz, or zip) to the given directory
+fn extract_archive(archive_path: &Path, dest_dir: &Path) -> Result<()> {
+    let archive_str = path_to_str(archive_path)?;
+    let dest_str = path_to_str(dest_dir)?;
+
+    let extension = archive_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+
+    let file_name = archive_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+
+    if extension == "gz" || extension == "tgz" || file_name.ends_with(".tar.gz") {
+        Command::new("tar")
+            .args(["-xzf", archive_str, "-C", dest_str])
+            .output()
+            .context("Failed to extract tar.gz archive")?;
+    } else if extension == "zip" {
+        Command::new("unzip")
+            .args(["-q", archive_str, "-d", dest_str])
+            .output()
+            .context("Failed to extract zip archive")?;
     }
 
-    fn name(&self) -> &str {
-        &self.name
+    Ok(())
+}
+
+/// Parse version from R DESCRIPTION file
+fn parse_description_version(path: &Path) -> Option<String> {
+    let desc_path = path.join("DESCRIPTION");
+    let content = std::fs::read_to_string(&desc_path).ok()?;
+
+    content
+        .lines()
+        .find_map(|line| line.strip_prefix("Version:"))
+        .map(|v| v.trim().to_string())
+}
+
+/// Parse package name from R DESCRIPTION file
+fn parse_description_name(path: &Path) -> Option<String> {
+    let desc_path = path.join("DESCRIPTION");
+    let content = std::fs::read_to_string(&desc_path).ok()?;
+
+    content
+        .lines()
+        .find_map(|line| line.strip_prefix("Package:"))
+        .map(|n| n.trim().to_string())
+}
+
+/// Parse package name/version from Python pyproject.toml or setup.py
+fn parse_python_package_info(path: &Path) -> (Option<String>, Option<String>) {
+    // Try pyproject.toml first
+    if let Some(result) = parse_pyproject_toml(path) {
+        return result;
     }
 
-    fn version(&self) -> Option<&str> {
-        self.version.as_deref()
+    // Fallback to setup.py
+    parse_setup_py(path).unwrap_or((None, None))
+}
+
+fn parse_pyproject_toml(path: &Path) -> Option<(Option<String>, Option<String>)> {
+    let content = std::fs::read_to_string(path.join("pyproject.toml")).ok()?;
+
+    let mut name = None;
+    let mut version = None;
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with("name") {
+            name = name.or_else(|| extract_toml_string_value(line));
+        } else if line.starts_with("version") {
+            version = version.or_else(|| extract_toml_string_value(line));
+        }
     }
+
+    if name.is_some() {
+        Some((name, version))
+    } else {
+        None
+    }
+}
+
+fn parse_setup_py(path: &Path) -> Option<(Option<String>, Option<String>)> {
+    let content = std::fs::read_to_string(path.join("setup.py")).ok()?;
+
+    let mut name = None;
+    let mut version = None;
+
+    for line in content.lines() {
+        let line = line.trim();
+        if (line.contains("name=") || line.contains("name =")) && name.is_none() {
+            name = extract_python_string_value(line, "name");
+        }
+        if (line.contains("version=") || line.contains("version =")) && version.is_none() {
+            version = extract_python_string_value(line, "version");
+        }
+    }
+
+    Some((name, version))
+}
+
+fn extract_toml_string_value(line: &str) -> Option<String> {
+    let parts: Vec<&str> = line.splitn(2, '=').collect();
+    if parts.len() == 2 {
+        let val = parts[1].trim().trim_matches('"').trim_matches('\'');
+        if !val.is_empty() {
+            return Some(val.to_string());
+        }
+    }
+    None
+}
+
+fn extract_python_string_value(line: &str, key: &str) -> Option<String> {
+    // Match patterns like: name="foo" or name = "foo" or name='foo'
+    let pattern = format!(r#"{key}\s*=\s*["']([^"']+)["']"#);
+    regex::Regex::new(&pattern)
+        .ok()?
+        .captures(line)?
+        .get(1)
+        .map(|m| m.as_str().to_string())
 }
