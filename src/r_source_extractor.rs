@@ -157,105 +157,167 @@ fn parse_rd_content(content: &str) -> Result<RdDoc> {
         examples: Vec::new(),
     };
 
-    // Simple Rd parser - extract sections
-    let mut current_section = String::new();
-    let mut section_content = String::new();
-    let mut examples_content = String::new();
-    let mut brace_depth: isize = 0;
+    // Collect raw section content first, then parse
+    let sections = extract_rd_sections(content);
 
-    for line in content.lines() {
-        let line = line.trim();
-
-        // Check for section start
-        if line.starts_with("\\title{") {
-            current_section = "title".to_string();
-            section_content = extract_brace_content(line, "\\title{");
-            brace_depth = count_braces(line);
-        } else if line.starts_with("\\description{") {
-            current_section = "description".to_string();
-            section_content = extract_brace_content(line, "\\description{");
-            brace_depth = count_braces(line);
-        } else if line.starts_with("\\value{") {
-            current_section = "value".to_string();
-            section_content = extract_brace_content(line, "\\value{");
-            brace_depth = count_braces(line);
-        } else if line.starts_with("\\arguments{") {
-            current_section = "arguments".to_string();
-            brace_depth = 1;
-        } else if line.starts_with("\\examples{") {
-            current_section = "examples".to_string();
-            examples_content.clear();
-            brace_depth = 1;
-        } else if current_section == "arguments" && line.starts_with("\\item{") {
-            // Parse argument: \item{name}{description}
-            if let Some((name, desc)) = parse_item(line) {
-                doc.arguments.insert(name, sanitize(&desc));
-            }
-        } else if brace_depth > 0 {
-            brace_depth += line.chars().filter(|&c| c == '{').count() as isize;
-            brace_depth -= line.chars().filter(|&c| c == '}').count() as isize;
-
-            if current_section == "examples" && !line.starts_with('%') {
-                // Collect example lines, stripping \dontrun{} wrappers
-                let ex_line = line
-                    .trim_start_matches("\\dontrun{")
-                    .trim_start_matches("\\donttest{")
-                    .trim_start_matches("\\dontshow{");
-                if !ex_line.is_empty() && ex_line != "}" {
-                    if !examples_content.is_empty() {
-                        examples_content.push('\n');
-                    }
-                    examples_content.push_str(ex_line);
-                }
-            } else if !current_section.is_empty() && current_section != "arguments" {
-                section_content.push(' ');
-                section_content.push_str(line);
-            }
-
-            if brace_depth == 0 {
-                match current_section.as_str() {
-                    "title" => doc.title = Some(sanitize(&section_content)),
-                    "description" => doc.description = Some(sanitize(&section_content)),
-                    "value" => doc.value = Some(sanitize(&section_content)),
-                    "examples" => {
-                        // Parse collected examples into separate code blocks
-                        doc.examples = parse_example_blocks(&examples_content);
-                    }
-                    _ => {}
-                }
-                current_section.clear();
-                section_content.clear();
-            }
-        }
+    // Process each section
+    if let Some(title) = sections.get("title") {
+        doc.title = Some(sanitize(title));
+    }
+    if let Some(desc) = sections.get("description") {
+        doc.description = Some(sanitize(desc));
+    }
+    if let Some(value) = sections.get("value") {
+        doc.value = Some(sanitize(value));
+    }
+    if let Some(args) = sections.get("arguments") {
+        doc.arguments = parse_arguments_section(args);
+    }
+    if let Some(examples) = sections.get("examples") {
+        doc.examples = parse_example_blocks(examples);
     }
 
     Ok(doc)
 }
 
-fn extract_brace_content(line: &str, prefix: &str) -> String {
-    line.strip_prefix(prefix)
-        .unwrap_or("")
-        .trim_end_matches('}')
-        .to_string()
+/// Extract all sections from Rd content, handling nested braces properly
+fn extract_rd_sections(content: &str) -> BTreeMap<String, String> {
+    let mut sections = BTreeMap::new();
+    let mut current_section = String::new();
+    let mut section_content = String::new();
+    let mut brace_depth: isize = 0;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        // Check for new section start (only when not already in a section)
+        if brace_depth == 0 {
+            for section_name in &[
+                "title",
+                "description",
+                "value",
+                "arguments",
+                "examples",
+                "usage",
+                "details",
+            ] {
+                let prefix = format!("\\{section_name}{{");
+                if trimmed.starts_with(&prefix) {
+                    current_section = (*section_name).to_string();
+                    // Get content after the opening brace
+                    let after_prefix = trimmed.strip_prefix(&prefix).unwrap_or("");
+                    section_content = after_prefix.to_string();
+                    brace_depth = 1 + count_braces(after_prefix);
+                    break;
+                }
+            }
+        } else {
+            // We're inside a section - accumulate content
+            if !section_content.is_empty() {
+                section_content.push('\n');
+            }
+            section_content.push_str(trimmed);
+            brace_depth += count_braces(trimmed);
+
+            // Section ended
+            if brace_depth <= 0 {
+                // Remove trailing brace(s)
+                let content = section_content.trim_end_matches('}').to_string();
+                sections.insert(current_section.clone(), content);
+                current_section.clear();
+                section_content.clear();
+                brace_depth = 0;
+            }
+        }
+    }
+
+    sections
+}
+
+/// Parse the \arguments{} section to extract individual argument descriptions
+fn parse_arguments_section(content: &str) -> BTreeMap<String, String> {
+    let mut arguments = BTreeMap::new();
+    let mut current_name = String::new();
+    let mut current_desc = String::new();
+    let mut in_item = false;
+    let mut brace_depth: isize = 0;
+    let mut chars = content.chars().peekable();
+    let mut buffer = String::new();
+
+    while let Some(c) = chars.next() {
+        buffer.push(c);
+
+        // Look for \item{ pattern
+        if buffer.ends_with("\\item{") && !in_item {
+            buffer.clear();
+            // Extract argument name (until closing brace)
+            current_name.clear();
+            let mut name_brace_depth = 1;
+            for nc in chars.by_ref() {
+                if nc == '{' {
+                    name_brace_depth += 1;
+                    current_name.push(nc);
+                } else if nc == '}' {
+                    name_brace_depth -= 1;
+                    if name_brace_depth == 0 {
+                        break;
+                    }
+                    current_name.push(nc);
+                } else {
+                    current_name.push(nc);
+                }
+            }
+
+            // Skip opening brace of description
+            while let Some(&nc) = chars.peek() {
+                if nc == '{' {
+                    chars.next();
+                    break;
+                } else if nc.is_whitespace() || nc == '\n' {
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+
+            current_desc.clear();
+            brace_depth = 1;
+            in_item = true;
+            buffer.clear();
+        } else if in_item {
+            // We're collecting description content
+            if c == '{' {
+                brace_depth += 1;
+                current_desc.push(c);
+            } else if c == '}' {
+                brace_depth -= 1;
+                if brace_depth == 0 {
+                    // End of this item's description
+                    let name = current_name.trim().to_string();
+                    let desc = sanitize(current_desc.trim());
+                    if !name.is_empty() {
+                        arguments.insert(name, desc);
+                    }
+                    in_item = false;
+                    current_name.clear();
+                    current_desc.clear();
+                    buffer.clear();
+                } else {
+                    current_desc.push(c);
+                }
+            } else {
+                current_desc.push(c);
+            }
+        }
+    }
+
+    arguments
 }
 
 fn count_braces(line: &str) -> isize {
     let open = line.chars().filter(|&c| c == '{').count();
     let close = line.chars().filter(|&c| c == '}').count();
     open as isize - close as isize
-}
-
-fn parse_item(line: &str) -> Option<(String, String)> {
-    // \item{name}{description}
-    let rest = line.strip_prefix("\\item{")?;
-    let close_pos = rest.find('}')?;
-    let name = rest[..close_pos].to_string();
-    let rest = &rest[close_pos + 1..];
-    let desc = rest
-        .trim_start_matches('{')
-        .trim_end_matches('}')
-        .to_string();
-    Some((name, desc))
 }
 
 /// Parse example content into separate code blocks.
