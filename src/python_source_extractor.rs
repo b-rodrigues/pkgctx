@@ -2,7 +2,7 @@
 //!
 //! Parses Python package source directly from downloaded tarballs without requiring installation.
 
-use crate::fetch::FetchedPackage;
+use crate::fetch::PackageInfo;
 use crate::schema::{ClassRecord, FunctionRecord, PackageRecord, Record, SCHEMA_VERSION};
 use crate::ExtractOptions;
 use anyhow::{Context, Result};
@@ -11,10 +11,10 @@ use std::collections::BTreeMap;
 use std::process::Command;
 
 /// Extract records from a Python package source directory
-pub fn extract_from_source(pkg: &FetchedPackage, options: &ExtractOptions) -> Result<Vec<Record>> {
+pub fn extract_from_source(pkg: &dyn PackageInfo, options: &ExtractOptions) -> Result<Vec<Record>> {
     // Use Python AST to parse the source
     let py_script =
-        generate_source_parser(&pkg.source_path.to_string_lossy(), options.include_internal);
+        generate_source_parser(&pkg.source_path().to_string_lossy(), options.include_internal);
 
     let output = Command::new("python3")
         .args(["-c", &py_script])
@@ -45,11 +45,11 @@ pub fn extract_from_source(pkg: &FetchedPackage, options: &ExtractOptions) -> Re
     // Package record
     let pkg_record = PackageRecord {
         schema_version: SCHEMA_VERSION.to_string(),
-        name: pkg.name.clone(),
+        name: pkg.name().to_string(),
         version: pkg
-            .version
-            .clone()
-            .unwrap_or_else(|| parsed.version.unwrap_or("unknown".to_string())),
+            .version()
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| parsed.version.unwrap_or_else(|| "unknown".to_string())),
         language: "Python".to_string(),
         description: parsed.description,
         llm_hints: Vec::new(),

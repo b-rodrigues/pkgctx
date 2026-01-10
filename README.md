@@ -6,8 +6,9 @@ Extracts structured, compact API specifications from R or Python packages for us
 
 ## Features
 
-- **Language support**: R (CRAN, GitHub) and Python (PyPI, GitHub)
+- **Language support**: R (CRAN, GitHub, local) and Python (PyPI, GitHub, local)
 - **Source-based**: Downloads and parses source code on demand (no installation required)
+- **Local path support**: Use `.` or `./path` to extract from local directories (great for CI)
 - **Formats**: YAML (default, token-efficient) or JSON
 - **Deterministic**: Reproducible via Nix flake
 - **Token-efficient**: Compact mode reduces output by ~67%
@@ -52,6 +53,10 @@ pkgctx python requests > requests.ctx.yaml
 
 # Extract Python package from GitHub
 pkgctx python github:psf/requests > requests.ctx.yaml
+
+# Extract from local directory (great for CI!)
+pkgctx r . > mypackage.ctx.yaml
+pkgctx python ./mypackage > mypackage.ctx.yaml
 ```
 
 ### Options
@@ -75,6 +80,16 @@ pkgctx python numpy --emit-classes > numpy.ctx.yaml
 
 # Maximum compression (from GitHub)
 pkgctx r github:ropensci/rix --compact --hoist-common-args > rix.ctx.yaml
+
+# CI: Extract context from checked-out repo
+cd my-r-package
+pkgctx r . > package.ctx.yaml
+
+# Local path with different notations
+pkgctx r .                    # Current directory
+pkgctx r ./src/mypackage       # Relative path
+pkgctx r /absolute/path/to/pkg # Absolute path
+pkgctx r ~/repos/mypackage     # Home directory expansion
 ```
 
 ## Output Schema (v1.1)
@@ -116,6 +131,60 @@ name: JSONDecoder
 methods:
   decode: Return the Python representation of a JSON string
   raw_decode: Decode a JSON document from a string
+```
+
+## CI Usage
+
+Use `pkgctx` in GitHub Actions to extract LLM-ready context from your package on every push. This is useful for:
+- Generating up-to-date API documentation for LLMs
+- Detecting API drift by diffing the output
+- Providing context to AI-powered code review tools
+
+### GitHub Actions Example
+
+```yaml
+name: Generate Package Context
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  generate-context:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+      
+      - name: Generate package context (R)
+        run: |
+          nix run github:b-rodrigues/pkgctx -- r . > package.ctx.yaml
+      
+      # Or for Python packages:
+      # - name: Generate package context (Python)
+      #   run: |
+      #     nix run github:b-rodrigues/pkgctx -- python . > package.ctx.yaml
+      
+      - name: Commit and push context
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add package.ctx.yaml
+          git diff --staged --quiet || git commit -m "Update package context [skip ci]"
+          git push
+```
+
+### Detecting API Drift
+
+You can use `pkgctx` to detect breaking changes in your API:
+
+```yaml
+- name: Check for API drift
+  run: |
+    nix run github:b-rodrigues/pkgctx -- r . > current.ctx.yaml
+    git diff --exit-code current.ctx.yaml || echo "API has changed!"
 ```
 
 ## Development

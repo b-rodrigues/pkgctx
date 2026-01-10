@@ -2,7 +2,7 @@
 //!
 //! Parses R package source directly from downloaded tarballs without requiring installation.
 
-use crate::fetch::FetchedPackage;
+use crate::fetch::PackageInfo;
 use crate::schema::{Example, FunctionRecord, PackageRecord, Record, SCHEMA_VERSION};
 use crate::ExtractOptions;
 use anyhow::{Context, Result};
@@ -11,16 +11,16 @@ use std::fs;
 use std::path::Path;
 
 /// Extract records from an R package source directory
-pub fn extract_from_source(pkg: &FetchedPackage, options: &ExtractOptions) -> Result<Vec<Record>> {
+pub fn extract_from_source(pkg: &dyn PackageInfo, options: &ExtractOptions) -> Result<Vec<Record>> {
     let mut records = Vec::new();
 
     // Parse DESCRIPTION for package metadata
-    let (title, description) = parse_description(&pkg.source_path)?;
+    let (title, description) = parse_description(pkg.source_path())?;
 
     let pkg_record = PackageRecord {
         schema_version: SCHEMA_VERSION.to_string(),
-        name: pkg.name.clone(),
-        version: pkg.version.clone().unwrap_or_else(|| "unknown".to_string()),
+        name: pkg.name().to_string(),
+        version: pkg.version().unwrap_or("unknown").to_string(),
         language: "R".to_string(),
         description: title.or(description),
         llm_hints: Vec::new(),
@@ -29,14 +29,14 @@ pub fn extract_from_source(pkg: &FetchedPackage, options: &ExtractOptions) -> Re
     records.push(Record::Package(pkg_record));
 
     // Parse NAMESPACE for exported functions
-    let exports = parse_namespace(&pkg.source_path)?;
+    let exports = parse_namespace(pkg.source_path())?;
 
     // Parse Rd files for documentation
-    let rd_docs = parse_rd_files(&pkg.source_path)?;
+    let rd_docs = parse_rd_files(pkg.source_path())?;
 
     // Parse R files for function signatures
     let functions = parse_r_files(
-        &pkg.source_path,
+        pkg.source_path(),
         &exports,
         &rd_docs,
         options.include_internal,

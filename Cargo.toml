@@ -28,6 +28,9 @@ which = "6"
 # Temporary directories for downloaded sources
 tempfile = "3"
 
+# Regular expressions for parsing
+regex = "1"
+
 [profile.release]
 lto = true
 strip = true

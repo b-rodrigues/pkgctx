@@ -25,18 +25,18 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Extract context from an R package (CRAN or GitHub)
+    /// Extract context from an R package (CRAN, GitHub, or local path)
     R {
-        /// Package specifier: name (CRAN) or github:owner/repo[@ref]
+        /// Package specifier: name (CRAN), github:owner/repo[@ref], or local path (., ./path, /path)
         package: String,
 
         #[command(flatten)]
         options: ExtractOptions,
     },
 
-    /// Extract context from a Python package (PyPI or GitHub)
+    /// Extract context from a Python package (PyPI, GitHub, or local path)
     Python {
-        /// Package specifier: name (PyPI) or github:owner/repo[@ref]
+        /// Package specifier: name (PyPI), github:owner/repo[@ref], or local path (., ./path, /path)
         package: String,
 
         #[command(flatten)]
@@ -85,53 +85,91 @@ fn main() -> Result<()> {
             eprintln!("Fetching R package: {}", package);
 
             let source = fetch::PackageSource::parse(&package, "r")?;
-            let pkg = match source {
+            
+            match source {
                 fetch::PackageSource::Cran(name) => {
                     eprintln!("  → Downloading from CRAN...");
-                    fetch::fetch_cran_package(&name)?
+                    let pkg = fetch::fetch_cran_package(&name)?;
+                    eprintln!(
+                        "  → Version: {}",
+                        pkg.version.as_deref().unwrap_or("unknown")
+                    );
+                    eprintln!("  → Parsing source...");
+                    let records = r_source_extractor::extract_from_source(&pkg, &options)?;
+                    let records = apply_transformations(records, &options);
+                    output_records(&records, options.format)?;
                 }
                 fetch::PackageSource::GitHub { owner, repo, ref_ } => {
                     eprintln!("  → Downloading from GitHub: {}/{}...", owner, repo);
-                    fetch::fetch_github_r_package(&owner, &repo, ref_.as_deref())?
+                    let pkg = fetch::fetch_github_r_package(&owner, &repo, ref_.as_deref())?;
+                    eprintln!(
+                        "  → Version: {}",
+                        pkg.version.as_deref().unwrap_or("unknown")
+                    );
+                    eprintln!("  → Parsing source...");
+                    let records = r_source_extractor::extract_from_source(&pkg, &options)?;
+                    let records = apply_transformations(records, &options);
+                    output_records(&records, options.format)?;
+                }
+                fetch::PackageSource::Local(path) => {
+                    eprintln!("  → Using local path: {}...", path.display());
+                    let pkg = fetch::fetch_local_r_package(&path)?;
+                    eprintln!(
+                        "  → Version: {}",
+                        pkg.version.as_deref().unwrap_or("unknown")
+                    );
+                    eprintln!("  → Parsing source...");
+                    let records = r_source_extractor::extract_from_source(&pkg, &options)?;
+                    let records = apply_transformations(records, &options);
+                    output_records(&records, options.format)?;
                 }
                 _ => anyhow::bail!("Invalid source for R package"),
             };
-
-            eprintln!(
-                "  → Version: {}",
-                pkg.version.as_deref().unwrap_or("unknown")
-            );
-            eprintln!("  → Parsing source...");
-
-            let records = r_source_extractor::extract_from_source(&pkg, &options)?;
-            let records = apply_transformations(records, &options);
-            output_records(&records, options.format)?;
         }
         Commands::Python { package, options } => {
             eprintln!("Fetching Python package: {}", package);
 
             let source = fetch::PackageSource::parse(&package, "python")?;
-            let pkg = match source {
+            
+            match source {
                 fetch::PackageSource::PyPI(name) => {
                     eprintln!("  → Downloading from PyPI...");
-                    fetch::fetch_pypi_package(&name)?
+                    let pkg = fetch::fetch_pypi_package(&name)?;
+                    eprintln!(
+                        "  → Version: {}",
+                        pkg.version.as_deref().unwrap_or("unknown")
+                    );
+                    eprintln!("  → Parsing source...");
+                    let records = python_source_extractor::extract_from_source(&pkg, &options)?;
+                    let records = apply_transformations(records, &options);
+                    output_records(&records, options.format)?;
                 }
                 fetch::PackageSource::GitHub { owner, repo, ref_ } => {
                     eprintln!("  → Downloading from GitHub: {}/{}...", owner, repo);
-                    fetch::fetch_github_python_package(&owner, &repo, ref_.as_deref())?
+                    let pkg = fetch::fetch_github_python_package(&owner, &repo, ref_.as_deref())?;
+                    eprintln!(
+                        "  → Version: {}",
+                        pkg.version.as_deref().unwrap_or("unknown")
+                    );
+                    eprintln!("  → Parsing source...");
+                    let records = python_source_extractor::extract_from_source(&pkg, &options)?;
+                    let records = apply_transformations(records, &options);
+                    output_records(&records, options.format)?;
+                }
+                fetch::PackageSource::Local(path) => {
+                    eprintln!("  → Using local path: {}...", path.display());
+                    let pkg = fetch::fetch_local_python_package(&path)?;
+                    eprintln!(
+                        "  → Version: {}",
+                        pkg.version.as_deref().unwrap_or("unknown")
+                    );
+                    eprintln!("  → Parsing source...");
+                    let records = python_source_extractor::extract_from_source(&pkg, &options)?;
+                    let records = apply_transformations(records, &options);
+                    output_records(&records, options.format)?;
                 }
                 _ => anyhow::bail!("Invalid source for Python package"),
             };
-
-            eprintln!(
-                "  → Version: {}",
-                pkg.version.as_deref().unwrap_or("unknown")
-            );
-            eprintln!("  → Parsing source...");
-
-            let records = python_source_extractor::extract_from_source(&pkg, &options)?;
-            let records = apply_transformations(records, &options);
-            output_records(&records, options.format)?;
         }
     }
 
