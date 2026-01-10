@@ -68,6 +68,7 @@ pkgctx python ./mypackage > mypackage.ctx.yaml
 | `--include-internal` | Include non-exported/internal functions |
 | `--emit-classes` | Include class specifications (Python) |
 | `--hoist-common-args` | Extract common arguments to package level |
+| `--no-header` | Omit the LLM instructions header from output |
 
 ### Examples
 
@@ -95,6 +96,19 @@ pkgctx r ~/repos/mypackage     # Home directory expansion
 ## Output Schema (v1.1)
 
 pkgctx produces a stream of YAML records. Each record has a `kind` field:
+
+### Context Header Record
+
+The first record (unless `--no-header` is used) provides instructions for LLMs:
+
+```yaml
+kind: context_header
+llm_instructions: >-
+  This is an LLM-optimized API specification for the R package 'dplyr'.
+  Use this context to write correct code using dplyr functions.
+  Each 'function' record describes a public function with its signature,
+  arguments, and purpose. All listed functions are part of the public API.
+```
 
 ### Package Record
 

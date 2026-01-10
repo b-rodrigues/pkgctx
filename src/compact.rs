@@ -12,6 +12,7 @@ pub fn compact_records(records: Vec<Record>) -> Vec<Record> {
 
 fn compact_record(record: Record) -> Record {
     match record {
+        Record::ContextHeader(h) => Record::ContextHeader(h), // Keep headers as-is
         Record::Package(pkg) => Record::Package(compact_package(pkg)),
         Record::Function(func) => Record::Function(compact_function(func)),
         Record::Class(cls) => Record::Class(compact_class(cls)),

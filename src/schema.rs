@@ -10,10 +10,20 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Record {
+    /// Context header with LLM instructions (always first when enabled)
+    #[serde(rename = "context_header")]
+    ContextHeader(ContextHeaderRecord),
     Package(PackageRecord),
     Function(FunctionRecord),
     Class(ClassRecord),
     Workflow(WorkflowRecord),
+}
+
+/// Context header record with instructions for LLMs
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextHeaderRecord {
+    /// Instructions for the LLM on how to interpret and use this context
+    pub llm_instructions: String,
 }
 
 /// Package metadata record

@@ -69,6 +69,10 @@ pub struct ExtractOptions {
     /// Extract frequently used arguments to package-level common_args
     #[arg(long)]
     pub hoist_common_args: bool,
+
+    /// Omit the LLM instructions header from output
+    #[arg(long)]
+    pub no_header: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -97,7 +101,7 @@ fn main() -> Result<()> {
                     eprintln!("  → Parsing source...");
                     let records = r_source_extractor::extract_from_source(&pkg, &options)?;
                     let records = apply_transformations(records, &options);
-                    output_records(&records, options.format)?;
+                    output_records(&records, options.format, &pkg.name, "R", options.no_header)?;
                 }
                 fetch::PackageSource::GitHub { owner, repo, ref_ } => {
                     eprintln!("  → Downloading from GitHub: {}/{}...", owner, repo);
@@ -109,7 +113,7 @@ fn main() -> Result<()> {
                     eprintln!("  → Parsing source...");
                     let records = r_source_extractor::extract_from_source(&pkg, &options)?;
                     let records = apply_transformations(records, &options);
-                    output_records(&records, options.format)?;
+                    output_records(&records, options.format, &pkg.name, "R", options.no_header)?;
                 }
                 fetch::PackageSource::Local(path) => {
                     eprintln!("  → Using local path: {}...", path.display());
@@ -121,7 +125,7 @@ fn main() -> Result<()> {
                     eprintln!("  → Parsing source...");
                     let records = r_source_extractor::extract_from_source(&pkg, &options)?;
                     let records = apply_transformations(records, &options);
-                    output_records(&records, options.format)?;
+                    output_records(&records, options.format, &pkg.name, "R", options.no_header)?;
                 }
                 _ => anyhow::bail!("Invalid source for R package"),
             };
@@ -142,7 +146,13 @@ fn main() -> Result<()> {
                     eprintln!("  → Parsing source...");
                     let records = python_source_extractor::extract_from_source(&pkg, &options)?;
                     let records = apply_transformations(records, &options);
-                    output_records(&records, options.format)?;
+                    output_records(
+                        &records,
+                        options.format,
+                        &pkg.name,
+                        "Python",
+                        options.no_header,
+                    )?;
                 }
                 fetch::PackageSource::GitHub { owner, repo, ref_ } => {
                     eprintln!("  → Downloading from GitHub: {}/{}...", owner, repo);
@@ -154,7 +164,13 @@ fn main() -> Result<()> {
                     eprintln!("  → Parsing source...");
                     let records = python_source_extractor::extract_from_source(&pkg, &options)?;
                     let records = apply_transformations(records, &options);
-                    output_records(&records, options.format)?;
+                    output_records(
+                        &records,
+                        options.format,
+                        &pkg.name,
+                        "Python",
+                        options.no_header,
+                    )?;
                 }
                 fetch::PackageSource::Local(path) => {
                     eprintln!("  → Using local path: {}...", path.display());
@@ -166,7 +182,13 @@ fn main() -> Result<()> {
                     eprintln!("  → Parsing source...");
                     let records = python_source_extractor::extract_from_source(&pkg, &options)?;
                     let records = apply_transformations(records, &options);
-                    output_records(&records, options.format)?;
+                    output_records(
+                        &records,
+                        options.format,
+                        &pkg.name,
+                        "Python",
+                        options.no_header,
+                    )?;
                 }
                 _ => anyhow::bail!("Invalid source for Python package"),
             };
@@ -194,12 +216,32 @@ fn apply_transformations(
     }
 }
 
-fn output_records(records: &[schema::Record], format: OutputFormat) -> Result<()> {
+fn output_records(
+    records: &[schema::Record],
+    format: OutputFormat,
+    pkg_name: &str,
+    language: &str,
+    no_header: bool,
+) -> Result<()> {
     let stdout = io::stdout();
     let mut handle = stdout.lock();
 
+    // Create context header if not disabled
+    let header = if no_header {
+        None
+    } else {
+        Some(schema::Record::ContextHeader(schema::ContextHeaderRecord {
+            llm_instructions: generate_llm_instructions(pkg_name, language),
+        }))
+    };
+
     match format {
         OutputFormat::Yaml => {
+            if let Some(h) = &header {
+                writeln!(handle, "---")?;
+                let yaml = serde_yaml::to_string(h)?;
+                write!(handle, "{}", yaml)?;
+            }
             for record in records {
                 writeln!(handle, "---")?;
                 let yaml = serde_yaml::to_string(record)?;
@@ -207,6 +249,10 @@ fn output_records(records: &[schema::Record], format: OutputFormat) -> Result<()
             }
         }
         OutputFormat::Json => {
+            if let Some(h) = &header {
+                let json = serde_json::to_string_pretty(h)?;
+                writeln!(handle, "{}", json)?;
+            }
             for record in records {
                 let json = serde_json::to_string_pretty(record)?;
                 writeln!(handle, "{}", json)?;
@@ -215,4 +261,16 @@ fn output_records(records: &[schema::Record], format: OutputFormat) -> Result<()
     }
 
     Ok(())
+}
+
+/// Generate LLM instructions for the context header
+fn generate_llm_instructions(pkg_name: &str, language: &str) -> String {
+    format!(
+        "This is an LLM-optimized API specification for the {} package '{}'. \
+Use this context to write correct code using {} functions. \
+Each 'function' record describes a public function with its signature, arguments, and purpose. \
+The 'package' record contains metadata. \
+All listed functions are part of the public API.",
+        language, pkg_name, pkg_name
+    )
 }
