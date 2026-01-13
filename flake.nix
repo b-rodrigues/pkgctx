@@ -58,7 +58,21 @@
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
 
-          nativeBuildInputs = [ pkgs.pkg-config ];
+          nativeBuildInputs = [
+            pkgs.pkg-config
+            pkgs.makeWrapper
+          ];
+
+          postFixup = ''
+            wrapProgram $out/bin/pkgctx \
+              --prefix PATH : ${pkgs.lib.makeBinPath [
+                rWithPackages
+                (pkgs.python312.withPackages (ps: [ ps.pip ]))
+                pkgs.curl
+                pkgs.gnutar
+                pkgs.gzip
+              ]}
+          '';
 
           meta = with pkgs.lib; {
             description = "Compile software packages into LLM-ready context";
