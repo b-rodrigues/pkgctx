@@ -63,6 +63,10 @@
             pkgs.makeWrapper
           ];
 
+          postInstall = ''
+            install -Dm644 man/pkgctx.1 $out/share/man/man1/pkgctx.1
+          '';
+
           postFixup = ''
             wrapProgram $out/bin/pkgctx \
               --prefix PATH : ${pkgs.lib.makeBinPath [
