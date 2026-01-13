@@ -1,0 +1,236 @@
+.TH PKGCTX 1 "2026-01-13" "pkgctx 0.1.0" "User Commands"
+.SH NAME
+pkgctx \- compile software packages into LLM-ready context
+.SH SYNOPSIS
+.B pkgctx
+.RB [ \-\-version ]
+.RB [ \-\-help ]
+.br
+.B pkgctx r
+.I PACKAGE
+.RI [ OPTIONS ]
+.br
+.B pkgctx python
+.I PACKAGE
+.RI [ OPTIONS ]
+.SH DESCRIPTION
+.B pkgctx
+extracts structured, compact API specifications from R or Python packages for use in Large Language Models (LLMs), minimizing tokens while maximizing context.
+.PP
+The tool downloads and parses source code on demand (no installation required) and can work with packages from various sources: package repositories (CRAN, Bioconductor, PyPI), GitHub, or local directories.
+.SH SUBCOMMANDS
+.TP
+.B r
+Extract context from an R package. Package sources can be CRAN, Bioconductor, GitHub, or local paths.
+.TP
+.B python
+Extract context from a Python package. Package sources can be PyPI, GitHub, or local paths.
+.SH PACKAGE SPECIFIERS
+Package specifiers determine where to fetch the package from:
+.TP
+.B Simple name
+For R packages, resolves to CRAN (e.g.,
+.IR dplyr ).
+For Python packages, resolves to PyPI (e.g.,
+.IR requests ).
+.TP
+.BI bioc: NAME
+R package from Bioconductor (e.g.,
+.IR bioc:GenomicRanges ).
+Only valid for R packages.
+.TP
+.BI github: OWNER/REPO
+Package from GitHub (e.g.,
+.IR github:ropensci/rix ).
+.TP
+.BI github: OWNER/REPO @ REF
+Package from GitHub at a specific ref (branch, tag, or commit) (e.g.,
+.IR github:ropensci/rix@main ).
+.TP
+.B Local paths
+Local package directory. Supported formats:
+.RS
+.TP
+.B .
+Current directory
+.TP
+.B ./path
+Relative path
+.TP
+.B /path
+Absolute path
+.TP
+.B ~/path
+Home directory expansion
+.RE
+.SH OPTIONS
+.TP
+.BR \-\-format " " \fIFORMAT\fR
+Output format. Supported formats:
+.BR yaml " (default), " json .
+.TP
+.B \-\-compact
+Aggressively minimize token count. Reduces output by approximately 67%.
+.TP
+.B \-\-include\-internal
+Include non-exported/internal functions in the output.
+.TP
+.B \-\-emit\-classes
+Include class specifications in the output (primarily for Python packages).
+.TP
+.B \-\-emit\-workflows
+Include canonical workflows in the output.
+.TP
+.B \-\-hoist\-common\-args
+Extract frequently used arguments to a package-level
+.I common_args
+section, reducing repetition.
+.TP
+.B \-\-no\-header
+Omit the LLM instructions header from the output.
+.TP
+.BR \-h ", " \-\-help
+Print help information.
+.TP
+.BR \-V ", " \-\-version
+Print version information.
+.SH EXAMPLES
+.SS Basic Usage
+Extract an R package from CRAN:
+.PP
+.nf
+.RS
+pkgctx r dplyr > dplyr.ctx.yaml
+.RE
+.fi
+.PP
+Extract an R package from Bioconductor:
+.PP
+.nf
+.RS
+pkgctx r bioc:GenomicRanges > genomicranges.ctx.yaml
+.RE
+.fi
+.PP
+Extract an R package from GitHub:
+.PP
+.nf
+.RS
+pkgctx r github:ropensci/rix > rix.ctx.yaml
+.RE
+.fi
+.PP
+Extract a Python package from PyPI:
+.PP
+.nf
+.RS
+pkgctx python requests > requests.ctx.yaml
+.RE
+.fi
+.PP
+Extract a Python package from GitHub:
+.PP
+.nf
+.RS
+pkgctx python github:psf/requests > requests.ctx.yaml
+.RE
+.fi
+.SS Local Paths
+Extract from the current directory:
+.PP
+.nf
+.RS
+pkgctx r . > mypackage.ctx.yaml
+.RE
+.fi
+.PP
+Extract from a relative path:
+.PP
+.nf
+.RS
+pkgctx python ./mypackage > mypackage.ctx.yaml
+.RE
+.fi
+.PP
+Extract from an absolute path:
+.PP
+.nf
+.RS
+pkgctx r /path/to/package > package.ctx.yaml
+.RE
+.fi
+.SS Advanced Options
+Compact output for efficient LLM context:
+.PP
+.nf
+.RS
+pkgctx r dplyr \-\-compact > dplyr.ctx.yaml
+.RE
+.fi
+.PP
+Full extraction with class information:
+.PP
+.nf
+.RS
+pkgctx python numpy \-\-emit\-classes > numpy.ctx.yaml
+.RE
+.fi
+.PP
+Maximum compression with common argument hoisting:
+.PP
+.nf
+.RS
+pkgctx r github:ropensci/rix \-\-compact \-\-hoist\-common\-args > rix.ctx.yaml
+.RE
+.fi
+.PP
+JSON output format:
+.PP
+.nf
+.RS
+pkgctx r dplyr \-\-format json > dplyr.ctx.json
+.RE
+.fi
+.PP
+Include internal functions:
+.PP
+.nf
+.RS
+pkgctx python requests \-\-include\-internal > requests.ctx.yaml
+.RE
+.fi
+.SH OUTPUT FORMAT
+.B pkgctx
+produces a stream of structured records in YAML (default) or JSON format. Each record has a
+.I kind
+field identifying its type:
+.TP
+.B context_header
+Provides LLM instructions (omitted with
+.BR \-\-no\-header ).
+.TP
+.B package
+Contains package metadata (name, version, language, description).
+.TP
+.B function
+Describes a function with its signature, arguments, purpose, and return value.
+.TP
+.B class
+Describes a class and its methods (when
+.B \-\-emit\-classes
+is used).
+.SH EXIT STATUS
+.TP
+.B 0
+Success
+.TP
+.B 1
+General error (invalid arguments, package not found, parsing failure, etc.)
+.SH SEE ALSO
+Project homepage:
+.UR https://github.com/b\-rodrigues/pkgctx
+.UE
+.SH AUTHORS
+Written by Bruno Rodrigues and contributors.
+.SH LICENSE
+GPL-3.0-or-later
